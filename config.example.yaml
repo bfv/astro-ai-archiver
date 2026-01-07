@@ -1,0 +1,14 @@
+# Example configuration for Astro AI Archiver
+# Copy this to config.yaml and modify as needed
+
+scan:
+  directory: "C:\\Users\\YourName\\Documents\\Astrophotography"  # Path to your FITS files
+  recursive: true                                                # Scan subdirectories
+  on_startup: true                                               # Scan on server startup
+
+database:
+  path: ""  # Leave empty to use default: {scan.directory}/.aaa.db
+
+logging:
+  level: "info"    # debug, info, warn, error
+  format: "console"  # console or json

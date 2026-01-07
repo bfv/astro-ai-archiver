@@ -1,0 +1,448 @@
+package main
+
+import (
+	"crypto/sha256"
+	"database/sql"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/rs/zerolog/log"
+	_ "modernc.org/sqlite"
+)
+
+const schemaVersion = 1
+
+const schema = `
+CREATE TABLE IF NOT EXISTS fits_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    relative_path TEXT NOT NULL UNIQUE,
+    hash TEXT,
+    file_mod_time INTEGER,
+    row_mod_time INTEGER DEFAULT (strftime('%s', 'now')),
+    object TEXT NOT NULL,
+    ra REAL,
+    dec REAL,
+    telescope TEXT NOT NULL,
+    focal_length REAL,
+    exposure REAL NOT NULL,
+    utc_time TEXT,
+    local_time TEXT,
+    julian_date REAL,
+    software TEXT,
+    camera TEXT,
+    gain REAL,
+    offset INTEGER,
+    filter TEXT NOT NULL,
+    image_type TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_object ON fits_files(object);
+CREATE INDEX IF NOT EXISTS idx_filter ON fits_files(filter);
+CREATE INDEX IF NOT EXISTS idx_telescope ON fits_files(telescope);
+CREATE INDEX IF NOT EXISTS idx_utc_time ON fits_files(utc_time);
+CREATE INDEX IF NOT EXISTS idx_hash ON fits_files(hash);
+CREATE INDEX IF NOT EXISTS idx_relative_path ON fits_files(relative_path);
+
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER NOT NULL,
+    applied_at INTEGER DEFAULT (strftime('%s', 'now'))
+);
+`
+
+// Database handles all database operations
+type Database struct {
+	db       *sql.DB
+	baseDir  string
+	filePath string
+	writeMu  sync.Mutex
+}
+
+// NewDatabase creates a new database connection and initializes schema
+func NewDatabase(dbPath, scanDir string) (*Database, error) {
+	// If dbPath is empty, use default location
+	if dbPath == "" {
+		dbPath = filepath.Join(scanDir, ".aaa", "archive.db")
+	}
+
+	log.Info().Str("path", dbPath).Msg("Opening database")
+
+	// Ensure directory exists
+	dir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create database directory: %w", err)
+	}
+
+	// Open database
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// Configure SQLite for better performance and concurrency
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		return nil, fmt.Errorf("failed to set WAL mode: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA synchronous=NORMAL"); err != nil {
+		return nil, fmt.Errorf("failed to set synchronous mode: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
+	}
+	// Set busy timeout to 10 seconds for concurrent writes
+	if _, err := db.Exec("PRAGMA busy_timeout=10000"); err != nil {
+		return nil, fmt.Errorf("failed to set busy timeout: %w", err)
+	}
+
+	database := &Database{
+		db:       db,
+		baseDir:  scanDir,
+		filePath: dbPath,
+	}
+
+	// Initialize schema
+	if err := database.initSchema(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to initialize schema: %w", err)
+	}
+
+	return database, nil
+}
+
+// initSchema creates the database schema if it doesn't exist
+func (d *Database) initSchema() error {
+	log.Debug().Msg("Initializing database schema")
+
+	// Execute schema
+	if _, err := d.db.Exec(schema); err != nil {
+		return fmt.Errorf("failed to create schema: %w", err)
+	}
+
+	// Check and insert schema version
+	var count int
+	err := d.db.QueryRow("SELECT COUNT(*) FROM schema_version").Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check schema version: %w", err)
+	}
+
+	if count == 0 {
+		_, err := d.db.Exec("INSERT INTO schema_version (version) VALUES (?)", schemaVersion)
+		if err != nil {
+			return fmt.Errorf("failed to insert schema version: %w", err)
+		}
+		log.Info().Int("version", schemaVersion).Msg("Database schema created")
+	} else {
+		var version int
+		err := d.db.QueryRow("SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1").Scan(&version)
+		if err != nil {
+			return fmt.Errorf("failed to read schema version: %w", err)
+		}
+		log.Debug().Int("version", version).Msg("Database schema version")
+	}
+
+	return nil
+}
+
+// Close closes the database connection
+func (d *Database) Close() error {
+	if d.db != nil {
+		return d.db.Close()
+	}
+	return nil
+}
+
+// InsertOrUpdateFile inserts or updates a FITS file record
+func (d *Database) InsertOrUpdateFile(file *FITSFile) error {
+	// Serialize writes to prevent database locks
+	d.writeMu.Lock()
+	defer d.writeMu.Unlock()
+
+	query := `
+		INSERT INTO fits_files (
+			relative_path, hash, file_mod_time, object, ra, dec, telescope,
+			focal_length, exposure, utc_time, local_time, julian_date,
+			software, camera, gain, offset, filter, image_type
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(relative_path) DO UPDATE SET
+			hash = excluded.hash,
+			file_mod_time = excluded.file_mod_time,
+			row_mod_time = strftime('%s', 'now'),
+			object = excluded.object,
+			ra = excluded.ra,
+			dec = excluded.dec,
+			telescope = excluded.telescope,
+			focal_length = excluded.focal_length,
+			exposure = excluded.exposure,
+			utc_time = excluded.utc_time,
+			local_time = excluded.local_time,
+			julian_date = excluded.julian_date,
+			software = excluded.software,
+			camera = excluded.camera,
+			gain = excluded.gain,
+			offset = excluded.offset,
+			filter = excluded.filter,
+			image_type = excluded.image_type
+	`
+
+	_, err := d.db.Exec(query,
+		file.RelativePath, file.Hash, file.FileModTime, file.Object,
+		file.RA, file.Dec, file.Telescope, file.FocalLength, file.Exposure,
+		file.UTCTime, file.LocalTime, file.JulianDate, file.Software,
+		file.Camera, file.Gain, file.Offset, file.Filter, file.ImageType,
+	)
+
+	return err
+}
+
+// GetFileByPath retrieves a file by its relative path
+func (d *Database) GetFileByPath(relativePath string) (*FITSFile, error) {
+	query := `
+		SELECT id, relative_path, hash, file_mod_time, row_mod_time,
+			   object, ra, dec, telescope, focal_length, exposure,
+			   utc_time, local_time, julian_date, software, camera,
+			   gain, offset, filter, image_type
+		FROM fits_files
+		WHERE relative_path = ?
+	`
+
+	file := &FITSFile{}
+	err := d.db.QueryRow(query, relativePath).Scan(
+		&file.ID, &file.RelativePath, &file.Hash, &file.FileModTime,
+		&file.RowModTime, &file.Object, &file.RA, &file.Dec, &file.Telescope,
+		&file.FocalLength, &file.Exposure, &file.UTCTime, &file.LocalTime,
+		&file.JulianDate, &file.Software, &file.Camera, &file.Gain,
+		&file.Offset, &file.Filter, &file.ImageType,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return file, nil
+}
+
+// QueryFiles performs a flexible query on FITS files
+func (d *Database) QueryFiles(filters map[string]interface{}, limit, offset int) ([]*FITSFile, error) {
+	query := `
+		SELECT id, relative_path, hash, file_mod_time, row_mod_time,
+			   object, ra, dec, telescope, focal_length, exposure,
+			   utc_time, local_time, julian_date, software, camera,
+			   gain, offset, filter, image_type
+		FROM fits_files
+		WHERE 1=1
+	`
+	args := []interface{}{}
+
+	// Build dynamic WHERE clause
+	if target, ok := filters["target"].(string); ok && target != "" {
+		query += " AND object LIKE ?"
+		args = append(args, "%"+target+"%")
+	}
+	if filter, ok := filters["filter"].(string); ok && filter != "" {
+		query += " AND filter = ?"
+		args = append(args, filter)
+	}
+	if telescope, ok := filters["telescope"].(string); ok && telescope != "" {
+		query += " AND telescope LIKE ?"
+		args = append(args, "%"+telescope+"%")
+	}
+	if camera, ok := filters["camera"].(string); ok && camera != "" {
+		query += " AND camera LIKE ?"
+		args = append(args, "%"+camera+"%")
+	}
+	if software, ok := filters["software"].(string); ok && software != "" {
+		query += " AND software LIKE ?"
+		args = append(args, "%"+software+"%")
+	}
+	if dateFrom, ok := filters["date_from"].(string); ok && dateFrom != "" {
+		query += " AND utc_time >= ?"
+		args = append(args, dateFrom)
+	}
+	if dateTo, ok := filters["date_to"].(string); ok && dateTo != "" {
+		query += " AND utc_time <= ?"
+		args = append(args, dateTo)
+	}
+	if minExp, ok := filters["min_exposure"].(float64); ok {
+		query += " AND exposure >= ?"
+		args = append(args, minExp)
+	}
+	if maxExp, ok := filters["max_exposure"].(float64); ok {
+		query += " AND exposure <= ?"
+		args = append(args, maxExp)
+	}
+	if minGain, ok := filters["gain_min"].(float64); ok {
+		query += " AND gain >= ?"
+		args = append(args, minGain)
+	}
+	if maxGain, ok := filters["gain_max"].(float64); ok {
+		query += " AND gain <= ?"
+		args = append(args, maxGain)
+	}
+
+	query += " ORDER BY utc_time DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	files := []*FITSFile{}
+	for rows.Next() {
+		file := &FITSFile{}
+		err := rows.Scan(
+			&file.ID, &file.RelativePath, &file.Hash, &file.FileModTime,
+			&file.RowModTime, &file.Object, &file.RA, &file.Dec, &file.Telescope,
+			&file.FocalLength, &file.Exposure, &file.UTCTime, &file.LocalTime,
+			&file.JulianDate, &file.Software, &file.Camera, &file.Gain,
+			&file.Offset, &file.Filter, &file.ImageType,
+		)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+
+	return files, rows.Err()
+}
+
+// GetArchiveSummary returns statistics about the archive
+func (d *Database) GetArchiveSummary() (*ArchiveSummary, error) {
+	summary := &ArchiveSummary{}
+
+	// Total files and exposure
+	err := d.db.QueryRow(`
+		SELECT COUNT(*), COALESCE(SUM(exposure), 0)
+		FROM fits_files
+	`).Scan(&summary.TotalFiles, &summary.TotalExposure)
+	if err != nil {
+		return nil, err
+	}
+
+	// Date range
+	var minDate, maxDate sql.NullString
+	err = d.db.QueryRow(`
+		SELECT MIN(utc_time), MAX(utc_time)
+		FROM fits_files
+		WHERE utc_time IS NOT NULL AND utc_time != ''
+	`).Scan(&minDate, &maxDate)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	// Convert to time.Time if valid
+	if minDate.Valid {
+		if t, err := time.Parse(time.RFC3339, minDate.String); err == nil {
+			summary.OldestDate = t
+		}
+	}
+	if maxDate.Valid {
+		if t, err := time.Parse(time.RFC3339, maxDate.String); err == nil {
+			summary.NewestDate = t
+		}
+	}
+
+	// Unique targets
+	rows, err := d.db.Query("SELECT DISTINCT object FROM fits_files WHERE object != '' ORDER BY object")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var target string
+		if err := rows.Scan(&target); err != nil {
+			return nil, err
+		}
+		summary.UniqueTargets = append(summary.UniqueTargets, target)
+	}
+
+	// Unique filters
+	rows, err = d.db.Query("SELECT DISTINCT filter FROM fits_files WHERE filter != '' ORDER BY filter")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var filter string
+		if err := rows.Scan(&filter); err != nil {
+			return nil, err
+		}
+		summary.UniqueFilters = append(summary.UniqueFilters, filter)
+	}
+
+	// Unique telescopes
+	rows, err = d.db.Query("SELECT DISTINCT telescope FROM fits_files WHERE telescope != '' ORDER BY telescope")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var telescope string
+		if err := rows.Scan(&telescope); err != nil {
+			return nil, err
+		}
+		summary.UniqueTelescopes = append(summary.UniqueTelescopes, telescope)
+	}
+
+	// Unique cameras
+	rows, err = d.db.Query("SELECT DISTINCT camera FROM fits_files WHERE camera != '' ORDER BY camera")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var camera string
+		if err := rows.Scan(&camera); err != nil {
+			return nil, err
+		}
+		summary.UniqueCameras = append(summary.UniqueCameras, camera)
+	}
+
+	return summary, nil
+}
+
+// DeleteFile removes a file record by relative path
+func (d *Database) DeleteFile(relativePath string) error {
+	_, err := d.db.Exec("DELETE FROM fits_files WHERE relative_path = ?", relativePath)
+	return err
+}
+
+// CalculateFileHash computes SHA256 hash of a file
+func CalculateFileHash(filePath string) (string, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+// GetRelativePath converts an absolute path to relative path from base directory
+func (d *Database) GetRelativePath(absPath string) (string, error) {
+	rel, err := filepath.Rel(d.baseDir, absPath)
+	if err != nil {
+		return "", err
+	}
+	// Convert to forward slashes for consistency across platforms
+	return filepath.ToSlash(rel), nil
+}
+
+// GetAbsolutePath converts a relative path to absolute path
+func (d *Database) GetAbsolutePath(relPath string) string {
+	// Convert from forward slashes to OS-specific
+	osPath := filepath.FromSlash(relPath)
+	return filepath.Join(d.baseDir, osPath)
+}

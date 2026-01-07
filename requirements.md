@@ -36,6 +36,7 @@ The goal of this project is to build an MCP server which discloses a database co
   - Scanning is recursive (includes subdirectories)
   - Scanning happens on startup in a separate goroutine (non-blocking)
   - Scanning can be triggered via MCP tool called `rescan_fits_directory`
+  - **Only FITS files with IMAGETYP='LIGHT' are processed** (calibration files like DARK, FLAT, BIAS are ignored)
 - Meta data we encounter in the .fits file is stored in SQLite database
 - MCP server provides tools for querying:
   - Search by target name
@@ -59,6 +60,8 @@ The goal of this project is to build an MCP server which discloses a database co
   - `scan.threads`: the amount of Go routines used for scanning the dirs
   - `database.path`: Path to SQLite database file (default: ${scan.directory/.aaa-db})
   - `logging.level`: Log level (debug, info, warn, error, debug, trace)
+    - `info`: Logs MCP tool calls (name + parameters) and errors only
+    - `trace`: Additionally logs full tool responses
   - `logging.format`: Log format (json, console)
 
 ## FITS header to store

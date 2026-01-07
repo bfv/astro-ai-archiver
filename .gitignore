@@ -1,4 +1,6 @@
+bin/
 build/
+db/
 log/
 tmp/
 
