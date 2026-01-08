@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -141,6 +142,31 @@ func (d *Database) initSchema() error {
 			return fmt.Errorf("failed to read schema version: %w", err)
 		}
 		log.Debug().Int("version", version).Msg("Database schema version")
+	}
+
+	return nil
+}
+
+// validateReadOnlyQuery ensures the query is safe (SELECT only)
+func validateReadOnlyQuery(query string) error {
+	// Trim whitespace and convert to uppercase for checking
+	normalized := strings.TrimSpace(strings.ToUpper(query))
+
+	// Must start with SELECT
+	if !strings.HasPrefix(normalized, "SELECT") {
+		return fmt.Errorf("only SELECT queries are allowed")
+	}
+
+	// Forbidden keywords that could modify data
+	forbidden := []string{
+		"INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER",
+		"TRUNCATE", "REPLACE", "ATTACH", "DETACH", "PRAGMA",
+	}
+
+	for _, keyword := range forbidden {
+		if strings.Contains(normalized, keyword) {
+			return fmt.Errorf("forbidden keyword in query: %s", keyword)
+		}
 	}
 
 	return nil
@@ -450,4 +476,72 @@ func (d *Database) GetAbsolutePath(relPath string) string {
 	// Convert from forward slashes to OS-specific
 	osPath := filepath.FromSlash(relPath)
 	return filepath.Join(d.baseDir, osPath)
+}
+
+// ExecuteReadOnlyQuery executes a custom SQL query with strict validation
+// Only SELECT queries are allowed, no modifications permitted
+func (d *Database) ExecuteReadOnlyQuery(query string) ([]map[string]interface{}, error) {
+	// Validate query is read-only
+	if err := validateReadOnlyQuery(query); err != nil {
+		return nil, err
+	}
+
+	log.Debug().
+		Str("query", query).
+		Msg("Executing custom SQL query")
+
+	rows, err := d.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("query execution failed: %w", err)
+	}
+	defer rows.Close()
+
+	// Get column names
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get columns: %w", err)
+	}
+
+	// Prepare result slice
+	result := []map[string]interface{}{}
+
+	// Scan all rows
+	for rows.Next() {
+		// Create a slice of interface{} to hold the values
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Create map for this row
+		rowMap := make(map[string]interface{})
+		for i, col := range columns {
+			val := values[i]
+
+			// Convert byte slices to strings for better JSON serialization
+			if b, ok := val.([]byte); ok {
+				rowMap[col] = string(b)
+			} else {
+				rowMap[col] = val
+			}
+		}
+
+		result = append(result, rowMap)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	log.Debug().
+		Int("rows", len(result)).
+		Int("columns", len(columns)).
+		Msg("Query executed successfully")
+
+	return result, nil
 }

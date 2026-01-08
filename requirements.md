@@ -112,10 +112,82 @@ For scanning we use goroutines, so the scanning is scalable. Use the `scan.threa
 
 ## MCP tools
 
+### Resources
+
+#### `fits://schema`
+MCP Resource that provides the complete database schema including:
+- Table structure (fits_files)
+- All column definitions with types and descriptions
+- Index information
+- Example queries
+- Query best practices
+
+Claude can read this resource to understand the database structure before constructing queries.
+
 ### Query Tools
 
 #### `query_fits_archive`
 Flexible search with multiple optional filters (target, filter, telescope, date range, etc.)
+
+#### `get_database_schema`
+Get the complete database schema as a tool response. Returns:
+- Table structure (fits_files)
+- All column definitions with types and descriptions
+- Index information
+- Example queries for common use cases
+- Query best practices
+
+This tool provides the same information as the `fits://schema` resource but as a direct tool call.
+Use this before constructing custom SQL queries with `execute_sql_query`.
+
+**Parameters:**
+- None
+
+**Returns:**
+- Complete schema documentation as structured text
+- Includes table definitions, column descriptions, indexes, and example queries
+
+#### `execute_sql_query`
+Execute custom SQL queries on the FITS archive database. Provides maximum flexibility for:
+- Complex filtering and aggregations
+- Custom grouping and sorting
+- Statistical queries (COUNT, AVG, SUM, etc.)
+- Date/time calculations
+- Multi-column queries
+
+**Security:**
+- Only SELECT queries are allowed (read-only)
+- Forbidden keywords: INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, TRUNCATE, REPLACE, ATTACH, DETACH, PRAGMA
+- Query validation happens before execution
+- Full query logging at debug level
+
+**Parameters:**
+- `query` (string, required): SQL SELECT query to execute
+
+**Returns:**
+- Array of row objects (maps with column names as keys)
+- Row count
+- Executed query (for verification)
+
+**Example queries:**
+```sql
+-- Files by month
+SELECT strftime('%Y-%m', utc_time) as month, COUNT(*) as count 
+FROM fits_files 
+GROUP BY month 
+ORDER BY month DESC
+
+-- Average exposure per filter
+SELECT filter, AVG(exposure) as avg_exp, COUNT(*) as count
+FROM fits_files 
+GROUP BY filter
+
+-- Files from specific date range
+SELECT object, filter, exposure, utc_time
+FROM fits_files
+WHERE utc_time BETWEEN '2025-05-01' AND '2025-06-30'
+ORDER BY utc_time
+```
 
 #### `get_file_details`
 Complete metadata for a specific file by path or ID

@@ -83,6 +83,9 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 		Version: "0.1.0",
 	}, nil)
 
+	// Register resources
+	registerResources(mcpServer, db)
+
 	// Register tools
 	registerTools(mcpServer, db, cfg)
 
@@ -98,7 +101,66 @@ func registerTools(s *mcp.Server, db *Database, cfg *Config) {
 	// query_fits_archive
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "query_fits_archive",
-		Description: "Search FITS files with flexible filters (target, filter, telescope, date range, etc.)",
+		Description: "Search and retrieve individual FITS file records with flexible filters (target, filter, telescope, date range, etc.). Returns paginated file details. For counting, statistics, or aggregations use execute_sql_query instead.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"target": map[string]interface{}{
+					"type":        "string",
+					"description": "Target object name (partial match, e.g., 'NGC2903', 'M31')",
+				},
+				"filter": map[string]interface{}{
+					"type":        "string",
+					"description": "Filter name (exact match, e.g., 'Ha', 'OIII', 'L', 'Red')",
+				},
+				"telescope": map[string]interface{}{
+					"type":        "string",
+					"description": "Telescope identifier (partial match)",
+				},
+				"camera": map[string]interface{}{
+					"type":        "string",
+					"description": "Camera identifier (partial match)",
+				},
+				"software": map[string]interface{}{
+					"type":        "string",
+					"description": "Acquisition software (partial match)",
+				},
+				"date_from": map[string]interface{}{
+					"type":        "string",
+					"description": "Start date in ISO8601 format (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)",
+				},
+				"date_to": map[string]interface{}{
+					"type":        "string",
+					"description": "End date in ISO8601 format (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)",
+				},
+				"min_exposure": map[string]interface{}{
+					"type":        "number",
+					"description": "Minimum exposure time in seconds",
+				},
+				"max_exposure": map[string]interface{}{
+					"type":        "number",
+					"description": "Maximum exposure time in seconds",
+				},
+				"gain_min": map[string]interface{}{
+					"type":        "number",
+					"description": "Minimum gain value",
+				},
+				"gain_max": map[string]interface{}{
+					"type":        "number",
+					"description": "Maximum gain value",
+				},
+				"limit": map[string]interface{}{
+					"type":        "number",
+					"description": "Maximum number of results to return (default: 100, max: 1000)",
+					"default":     100,
+				},
+				"offset": map[string]interface{}{
+					"type":        "number",
+					"description": "Number of results to skip for pagination (default: 0)",
+					"default":     0,
+				},
+			},
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args map[string]interface{}) (*mcp.CallToolResult, interface{}, error) {
 		log.Info().Str("tool", "query_fits_archive").Interface("params", args).Msg("Tool called")
 
@@ -106,6 +168,10 @@ func registerTools(s *mcp.Server, db *Database, cfg *Config) {
 		offset := 0
 		if l, ok := args["limit"].(float64); ok {
 			limit = int(l)
+			// Cap at 1000 for performance
+			if limit > 1000 {
+				limit = 1000
+			}
 		}
 		if o, ok := args["offset"].(float64); ok {
 			offset = int(o)
@@ -314,7 +380,263 @@ func registerTools(s *mcp.Server, db *Database, cfg *Config) {
 		}, config, nil
 	})
 
-	log.Info().Int("tools", 6).Msg("MCP tools registered")
+	// execute_sql_query
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "execute_sql_query",
+		Description: "Execute a custom SQL query on the FITS archive. Only SELECT queries are allowed. Use this for: counting files (COUNT), statistics (AVG, SUM, MIN, MAX), grouping (GROUP BY), aggregations, and any custom filtering. For retrieving individual file records use query_fits_archive.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args map[string]interface{}) (*mcp.CallToolResult, interface{}, error) {
+		log.Info().Str("tool", "execute_sql_query").Interface("params", args).Msg("Tool called")
+
+		sqlQuery, ok := args["query"].(string)
+		if !ok || sqlQuery == "" {
+			log.Error().Str("tool", "execute_sql_query").Msg("Tool failed: query required")
+			return nil, nil, fmt.Errorf("query parameter is required")
+		}
+
+		// Validate and execute query
+		result, err := db.ExecuteReadOnlyQuery(sqlQuery)
+		if err != nil {
+			log.Error().Err(err).Str("tool", "execute_sql_query").Str("query", sqlQuery).Msg("Tool failed")
+			return nil, nil, fmt.Errorf("query execution failed: %w", err)
+		}
+
+		response := map[string]interface{}{
+			"rows":      result,
+			"row_count": len(result),
+			"query":     sqlQuery,
+		}
+
+		// Build a text summary of results
+		textResult := fmt.Sprintf("Query returned %d row(s)\n\n", len(result))
+
+		// For small result sets (≤10 rows), include the actual data in text form
+		if len(result) > 0 && len(result) <= 10 {
+			// Get column names from first row
+			firstRow := result[0]
+			var columns []string
+			for col := range firstRow {
+				columns = append(columns, col)
+			}
+
+			// Add each row
+			for i, row := range result {
+				textResult += fmt.Sprintf("Row %d:\n", i+1)
+				for _, col := range columns {
+					textResult += fmt.Sprintf("  %s: %v\n", col, row[col])
+				}
+				if i < len(result)-1 {
+					textResult += "\n"
+				}
+			}
+		} else if len(result) > 10 {
+			textResult += fmt.Sprintf("(First 3 rows shown)\n\n")
+			for i := 0; i < 3 && i < len(result); i++ {
+				textResult += fmt.Sprintf("Row %d: %v\n", i+1, result[i])
+			}
+			textResult += fmt.Sprintf("\n...and %d more rows", len(result)-3)
+		}
+
+		log.Trace().Str("tool", "execute_sql_query").Interface("response", response).Msg("Tool response")
+
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: textResult},
+			},
+		}, response, nil
+	})
+
+	// get_database_schema
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_database_schema",
+		Description: "Get the complete database schema including table structure, columns with types and descriptions, indexes, and example queries. Use this before constructing custom SQL queries.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args map[string]interface{}) (*mcp.CallToolResult, interface{}, error) {
+		log.Info().Str("tool", "get_database_schema").Msg("Tool called")
+
+		schema := `DATABASE SCHEMA - FITS Archive
+========================================
+
+TABLE: fits_files
+-----------------
+Primary table containing all FITS file metadata.
+
+COLUMNS:
+  id              INTEGER PRIMARY KEY AUTOINCREMENT
+  relative_path   TEXT NOT NULL UNIQUE           - Path relative to scan directory
+  hash            TEXT                             - SHA256 hash of file content
+  file_mod_time   INTEGER                          - File modification time (Unix timestamp)
+  row_mod_time    INTEGER DEFAULT (strftime('%s', 'now')) - Database row update time
+  
+  object          TEXT NOT NULL                    - Target object name (e.g., "NGC2903", "M31")
+  ra              REAL NOT NULL                    - Right Ascension in degrees
+  dec             REAL NOT NULL                    - Declination in degrees
+  telescope       TEXT NOT NULL                    - Telescope identifier
+  focal_length    REAL NOT NULL                    - Focal length in mm
+  exposure        REAL NOT NULL                    - Exposure time in seconds
+  utc_time        TEXT                             - Observation time in UTC (ISO8601 format)
+  local_time      TEXT                             - Local observation time (ISO8601 format, nullable)
+  julian_date     REAL                             - Julian date (nullable)
+  software        TEXT                             - Acquisition software (e.g., "N.I.N.A", "Dwarf3")
+  camera          TEXT                             - Camera identifier
+  gain            REAL                             - Camera gain (nullable)
+  offset          INTEGER                          - Camera offset (nullable)
+  filter          TEXT NOT NULL                    - Filter name (e.g., "Ha", "OIII", "Lum", "Red")
+  image_type      TEXT                             - Image type (typically "LIGHT")
+
+INDEXES:
+  idx_object      ON object
+  idx_filter      ON filter
+  idx_telescope   ON telescope
+  idx_utc_time    ON utc_time
+  idx_hash        ON hash
+
+NOTES:
+- All date/time fields use ISO8601 format (YYYY-MM-DD HH:MM:SS)
+- Text searches should use LIKE with wildcards: WHERE object LIKE '%NGC%'
+- Date filtering: WHERE utc_time BETWEEN '2025-01-01' AND '2025-12-31'
+- Use strftime() for date grouping: strftime('%Y-%m', utc_time)
+
+EXAMPLE QUERIES:
+----------------
+
+1. Files by target:
+   SELECT object, COUNT(*) as count, SUM(exposure) as total_exposure
+   FROM fits_files
+   GROUP BY object
+   ORDER BY count DESC
+
+2. Monthly observation summary:
+   SELECT strftime('%Y-%m', utc_time) as month, 
+          COUNT(*) as files,
+          COUNT(DISTINCT object) as unique_targets,
+          SUM(exposure)/3600.0 as hours
+   FROM fits_files
+   GROUP BY month
+   ORDER BY month DESC
+
+3. Filter usage statistics:
+   SELECT filter, 
+          COUNT(*) as count,
+          AVG(exposure) as avg_exposure,
+          SUM(exposure)/3600.0 as total_hours
+   FROM fits_files
+   GROUP BY filter
+   ORDER BY count DESC
+
+4. Specific target observations:
+   SELECT utc_time, filter, exposure, telescope, camera
+   FROM fits_files
+   WHERE object LIKE '%M31%'
+   ORDER BY utc_time DESC
+
+5. Date range with multiple filters:
+   SELECT object, filter, COUNT(*) as subs, SUM(exposure) as total_exp
+   FROM fits_files
+   WHERE utc_time BETWEEN '2025-05-01' AND '2025-06-30'
+     AND filter IN ('Ha', 'OIII', 'SII')
+   GROUP BY object, filter
+   ORDER BY object, filter
+`
+
+		response := map[string]interface{}{
+			"schema": schema,
+		}
+
+		log.Trace().Str("tool", "get_database_schema").Msg("Tool response")
+
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: "Database schema retrieved successfully"},
+			},
+		}, response, nil
+	})
+
+	log.Info().Int("tools", 8).Msg("MCP tools registered")
+}
+
+// registerResources registers MCP resources
+func registerResources(s *mcp.Server, db *Database) {
+	// Database schema resource
+	s.AddResource(&mcp.Resource{
+		URI:         "fits://schema",
+		Name:        "FITS Archive Database Schema",
+		Description: "Complete database schema including table structure, column types, and indexes for the FITS archive",
+		MIMEType:    "text/plain",
+	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		log.Info().Str("resource", "fits://schema").Msg("Resource requested")
+
+		schema := `# FITS Archive Database Schema
+
+## Table: fits_files
+Main table containing all FITS file metadata.
+
+### Columns:
+- id (INTEGER PRIMARY KEY) - Unique file identifier
+- relative_path (TEXT NOT NULL UNIQUE) - Path relative to scan directory
+- hash (TEXT) - SHA256 hash of file content
+- file_mod_time (INTEGER) - File modification time (Unix timestamp)
+- row_mod_time (INTEGER) - Database row modification time (Unix timestamp)
+- object (TEXT NOT NULL) - Target object name (e.g., 'NGC2903', 'M31')
+- ra (REAL) - Right Ascension in degrees
+- dec (REAL) - Declination in degrees
+- telescope (TEXT NOT NULL) - Telescope name/model
+- focal_length (REAL) - Focal length in mm
+- exposure (REAL NOT NULL) - Exposure time in seconds
+- utc_time (TEXT) - UTC timestamp (ISO8601 format: YYYY-MM-DD HH:MM:SS)
+- local_time (TEXT) - Local timestamp (ISO8601 format)
+- julian_date (REAL) - Julian date (MJD-OBS)
+- software (TEXT) - Capture software (e.g., 'N.I.N.A.', 'Dwarf Lab')
+- camera (TEXT) - Camera name/model
+- gain (REAL) - Camera gain setting
+- offset (INTEGER) - Camera offset setting
+- filter (TEXT NOT NULL) - Filter name (e.g., 'L', 'Ha', 'OIII', 'Red')
+- image_type (TEXT) - Image type (typically 'LIGHT')
+
+### Indexes:
+- idx_object ON object
+- idx_filter ON filter
+- idx_telescope ON telescope
+- idx_utc_time ON utc_time
+- idx_hash ON hash
+- idx_relative_path ON relative_path
+
+### Notes:
+- All dates should be queried in ISO8601 format
+- Use LIKE for partial text matching on object, telescope, camera
+- Use BETWEEN for date ranges on utc_time
+- Only LIGHT frames are stored (no DARK, FLAT, BIAS calibration frames)
+
+### Example Queries:
+-- Files by month
+SELECT strftime('%Y-%m', utc_time) as month, COUNT(*) as count 
+FROM fits_files 
+GROUP BY month 
+ORDER BY month DESC;
+
+-- Average exposure per filter
+SELECT filter, AVG(exposure) as avg_exp, COUNT(*) as count
+FROM fits_files 
+GROUP BY filter;
+
+-- Specific target with date range
+SELECT object, filter, exposure, utc_time, relative_path
+FROM fits_files
+WHERE object LIKE '%NGC2903%' 
+  AND utc_time BETWEEN '2025-05-01' AND '2025-06-30'
+ORDER BY utc_time;
+`
+
+		return &mcp.ReadResourceResult{
+			Contents: []*mcp.ResourceContents{
+				{
+					URI:      "fits://schema",
+					MIMEType: "text/plain",
+					Text:     schema,
+				},
+			},
+		}, nil
+	})
+
+	log.Info().Int("resources", 1).Msg("MCP resources registered")
 }
 
 // loadConfig loads configuration from file using viper
