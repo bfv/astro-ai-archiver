@@ -288,6 +288,11 @@ func (d *Database) QueryFiles(filters map[string]interface{}, limit, offset int)
 	query += " ORDER BY utc_time DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
 
+	log.Debug().
+		Str("query", query).
+		Interface("args", args).
+		Msg("Executing query")
+
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
 		return nil, err

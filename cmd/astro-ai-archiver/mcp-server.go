@@ -117,13 +117,20 @@ func registerTools(s *mcp.Server, db *Database, cfg *Config) {
 			return nil, nil, fmt.Errorf("query failed: %w", err)
 		}
 
-		log.Trace().Str("tool", "query_fits_archive").Interface("response", files).Msg("Tool response")
+		response := map[string]interface{}{
+			"files":  files,
+			"count":  len(files),
+			"limit":  limit,
+			"offset": offset,
+		}
+
+		log.Trace().Str("tool", "query_fits_archive").Interface("response", response).Msg("Tool response")
 
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: fmt.Sprintf("Found %d files", len(files))},
 			},
-		}, files, nil
+		}, response, nil
 	})
 
 	// get_file_details
@@ -149,13 +156,18 @@ func registerTools(s *mcp.Server, db *Database, cfg *Config) {
 			return nil, nil, fmt.Errorf("file not found: %s", filePath)
 		}
 
-		log.Trace().Str("tool", "get_file_details").Interface("response", file).Msg("Tool response")
+		response := map[string]interface{}{
+			"file": file,
+			"path": filePath,
+		}
+
+		log.Trace().Str("tool", "get_file_details").Interface("response", response).Msg("Tool response")
 
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: "File details retrieved"},
 			},
-		}, file, nil
+		}, response, nil
 	})
 
 	// get_archive_summary
@@ -171,13 +183,17 @@ func registerTools(s *mcp.Server, db *Database, cfg *Config) {
 			return nil, nil, fmt.Errorf("failed to get summary: %w", err)
 		}
 
-		log.Trace().Str("tool", "get_archive_summary").Interface("response", summary).Msg("Tool response")
+		response := map[string]interface{}{
+			"summary": summary,
+		}
+
+		log.Trace().Str("tool", "get_archive_summary").Interface("response", response).Msg("Tool response")
 
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: fmt.Sprintf("Archive contains %d files", summary.TotalFiles)},
 			},
-		}, summary, nil
+		}, response, nil
 	})
 
 	// rescan_fits_directory

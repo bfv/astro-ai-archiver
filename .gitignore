@@ -1,5 +1,6 @@
 bin/
 build/
+config/
 db/
 log/
 tmp/

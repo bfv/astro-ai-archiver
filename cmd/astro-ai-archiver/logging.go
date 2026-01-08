@@ -16,8 +16,12 @@ func initLogging(level, format string) {
 		// JSON output for production
 		log.Logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
 	} else {
-		// Human-friendly console output
-		output := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
+		// Human-friendly console output without colors
+		output := zerolog.ConsoleWriter{
+			Out:        os.Stderr,
+			TimeFormat: time.RFC3339,
+			NoColor:    true,
+		}
 		log.Logger = zerolog.New(output).With().Timestamp().Logger()
 	}
 
