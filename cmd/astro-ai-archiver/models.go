@@ -2,8 +2,59 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
+	"reflect"
 	"time"
 )
+
+// DirectoryConfig can be either a single string or an array of strings
+type DirectoryConfig []string
+
+// UnmarshalYAML implements custom unmarshaling for directory field
+func (d *DirectoryConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Try unmarshaling as a string first
+	var single string
+	if err := unmarshal(&single); err == nil {
+		*d = DirectoryConfig{single}
+		return nil
+	}
+
+	// Try unmarshaling as a slice of strings
+	var multiple []string
+	if err := unmarshal(&multiple); err == nil {
+		*d = DirectoryConfig(multiple)
+		return nil
+	}
+
+	return fmt.Errorf("directory must be a string or array of strings")
+}
+
+// DecodeHook for viper/mapstructure to handle DirectoryConfig
+func StringOrSliceHookFunc() func(f reflect.Type, t reflect.Type, data interface{}) (interface{}, error) {
+	return func(f reflect.Type, t reflect.Type, data interface{}) (interface{}, error) {
+		// Only process if target is DirectoryConfig
+		if t != reflect.TypeOf(DirectoryConfig{}) {
+			return data, nil
+		}
+
+		// Handle string input
+		if f.Kind() == reflect.String {
+			return DirectoryConfig{data.(string)}, nil
+		}
+
+		// Handle slice input
+		if f.Kind() == reflect.Slice {
+			v := reflect.ValueOf(data)
+			result := make(DirectoryConfig, v.Len())
+			for i := 0; i < v.Len(); i++ {
+				result[i] = v.Index(i).Interface().(string)
+			}
+			return result, nil
+		}
+
+		return data, nil
+	}
+}
 
 // FITSFile represents a FITS file record in the database
 type FITSFile struct {
@@ -32,10 +83,10 @@ type FITSFile struct {
 // Config represents the application configuration
 type Config struct {
 	Scan struct {
-		Directory string `mapstructure:"directory"`
-		Recursive bool   `mapstructure:"recursive"`
-		OnStartup bool   `mapstructure:"on_startup"`
-	} `mapstructure:"scan"`
+		Directory DirectoryConfig `yaml:"directory" mapstructure:"directory"`
+		Recursive bool            `yaml:"recursive" mapstructure:"recursive"`
+		OnStartup bool            `yaml:"on_startup" mapstructure:"on_startup"`
+	} `yaml:"scan" mapstructure:"scan"`
 	Database struct {
 		Path string `mapstructure:"path"`
 	} `mapstructure:"database"`

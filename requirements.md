@@ -33,11 +33,16 @@ The goal of this project is to build an MCP server which discloses a database co
 ## functional requirements
 - AAA should expose an MCP server
 - AAA should be able to scan a given set of directories for .fits files
+  - **Multiple directories supported**: Can scan multiple base directories simultaneously
+  - **Wildcard support**: Directory patterns with wildcards (e.g., `C:\astro\_20*`) are expanded to match multiple directories
+  - Wildcards are expanded using `filepath.Glob()` at startup and before each scan
   - Scanning is recursive (includes subdirectories)
   - Scanning happens on startup in a separate goroutine (non-blocking)
   - Scanning can be triggered via MCP tool called `rescan_fits_directory`
   - **Only FITS files with IMAGETYP='LIGHT' are processed** (calibration files like DARK, FLAT, BIAS are ignored)
 - Meta data we encounter in the .fits file is stored in SQLite database
+- Relative paths are calculated based on the appropriate base directory the file belongs to
+- Files are correctly identified across all configured base directories
 - MCP server provides tools for querying:
   - Search by target name
   - Search by date range
@@ -54,7 +59,12 @@ The goal of this project is to build an MCP server which discloses a database co
 ## Configuration
 - Configuration file: `config.yaml` (via viper)
 - Required configuration:
-  - `scan.directory`: Path to FITS files directory
+  - `scan.directory`: Path(s) to FITS files directory
+    - Can be a single string: `"C:\\path\\to\\fits"`
+    - Or an array of strings: `["C:\\path1", "C:\\path2"]`
+    - **Supports wildcards**: Use glob patterns like `"C:\\astro\\_20*"` to match multiple directories
+    - Wildcards are expanded at startup and before each scan
+    - Non-matching patterns are logged as warnings
   - `scan.recursive`: Enable/disable recursive scanning (default: true)
   - `scan.on_startup`: Enable/disable startup scan (default: true)
   - `scan.threads`: the amount of Go routines used for scanning the dirs

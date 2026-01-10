@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -49,8 +50,15 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 		Str("config", configFile).
 		Msg("Starting Astro AI Archiver MCP Server")
 
+	// Expand wildcards in scan directories
+	expandedDirs := expandDirectories(cfg.Scan.Directory)
+	if len(expandedDirs) == 0 {
+		log.Fatal().Msg("No valid scan directories found after wildcard expansion")
+	}
+	log.Info().Strs("directories", expandedDirs).Msg("Scan directories configured")
+
 	// Initialize database
-	db, err := NewDatabase(cfg.Database.Path, cfg.Scan.Directory)
+	db, err := NewDatabase(cfg.Database.Path, expandedDirs)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to initialize database")
 	}
@@ -62,7 +70,7 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 	if cfg.Scan.OnStartup {
 		go func() {
 			log.Info().Msg("Starting initial scan in background")
-			scanner := NewScanner(db, cfg.Scan.Directory, cfg.Scan.Recursive, false)
+			scanner := NewScanner(db, expandedDirs, cfg.Scan.Recursive, false)
 			result, err := scanner.Scan()
 			if err != nil {
 				log.Error().Err(err).Msg("Initial scan failed")
@@ -300,7 +308,9 @@ func registerTools(s *mcp.Server, db *Database, cfg *Config) {
 				scanMutex.Unlock()
 			}()
 
-			scanner := NewScanner(db, cfg.Scan.Directory, cfg.Scan.Recursive, force)
+			// Expand directories again in case filesystem changed
+			currentDirs := expandDirectories(cfg.Scan.Directory)
+			scanner := NewScanner(db, currentDirs, cfg.Scan.Recursive, force)
 			result, err := scanner.Scan()
 			if err != nil {
 				log.Error().Err(err).Msg("Scan failed")
@@ -363,19 +373,19 @@ func registerTools(s *mcp.Server, db *Database, cfg *Config) {
 		log.Info().Str("tool", "get_configuration").Msg("Tool called")
 
 		config := map[string]interface{}{
-			"scan_directory":  cfg.Scan.Directory,
-			"recursive":       cfg.Scan.Recursive,
-			"scan_on_startup": cfg.Scan.OnStartup,
-			"database_path":   db.filePath,
-			"log_level":       cfg.Logging.Level,
-			"log_format":      cfg.Logging.Format,
+			"scan_directories": cfg.Scan.Directory, // Now an array
+			"recursive":        cfg.Scan.Recursive,
+			"scan_on_startup":  cfg.Scan.OnStartup,
+			"database_path":    db.filePath,
+			"log_level":        cfg.Logging.Level,
+			"log_format":       cfg.Logging.Format,
 		}
 
 		log.Trace().Str("tool", "get_configuration").Interface("response", config).Msg("Tool response")
 
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("Config loaded from: %s", cfg.Scan.Directory)},
+				&mcp.TextContent{Text: fmt.Sprintf("Configuration: %d scan director%s", len(cfg.Scan.Directory), map[bool]string{true: "y", false: "ies"}[len(cfg.Scan.Directory) == 1])},
 			},
 		}, config, nil
 	})
@@ -660,9 +670,50 @@ func loadConfig(configFile string) (*Config, error) {
 	}
 
 	var cfg Config
-	if err := v.Unmarshal(&cfg); err != nil {
+	// Use custom decode hook to handle DirectoryConfig
+	if err := v.Unmarshal(&cfg, viper.DecodeHook(StringOrSliceHookFunc())); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
 	return &cfg, nil
+}
+
+// expandDirectories expands wildcards in directory patterns and returns absolute paths
+func expandDirectories(patterns []string) []string {
+	expandedDirs := make([]string, 0)
+	for _, pattern := range patterns {
+		// Clean the path to ensure consistent separators
+		cleanPattern := filepath.Clean(pattern)
+
+		matches, err := filepath.Glob(cleanPattern)
+		if err != nil {
+			log.Warn().Err(err).Str("pattern", cleanPattern).Msg("Invalid glob pattern")
+			continue
+		}
+		if len(matches) == 0 {
+			// No matches, use original path if it's an existing directory
+			if info, err := os.Stat(cleanPattern); err == nil && info.IsDir() {
+				absPath, _ := filepath.Abs(cleanPattern)
+				expandedDirs = append(expandedDirs, absPath)
+				log.Info().Str("directory", absPath).Msg("Using literal directory path")
+			} else {
+				log.Warn().Str("pattern", cleanPattern).Msg("No matches for pattern and path does not exist")
+			}
+		} else {
+			// Add all matches that are directories
+			for _, match := range matches {
+				if info, err := os.Stat(match); err == nil && info.IsDir() {
+					// Get absolute path to ensure consistency
+					absMatch, err := filepath.Abs(match)
+					if err != nil {
+						log.Warn().Err(err).Str("path", match).Msg("Failed to get absolute path")
+						absMatch = match
+					}
+					expandedDirs = append(expandedDirs, absMatch)
+					log.Info().Str("pattern", cleanPattern).Str("matched", absMatch).Msg("Wildcard expanded")
+				}
+			}
+		}
+	}
+	return expandedDirs
 }

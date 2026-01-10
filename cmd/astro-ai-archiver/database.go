@@ -57,16 +57,19 @@ CREATE TABLE IF NOT EXISTS schema_version (
 // Database handles all database operations
 type Database struct {
 	db       *sql.DB
-	baseDir  string
+	baseDirs []string // Changed to support multiple base directories
 	filePath string
 	writeMu  sync.Mutex
 }
 
 // NewDatabase creates a new database connection and initializes schema
-func NewDatabase(dbPath, scanDir string) (*Database, error) {
-	// If dbPath is empty, use default location
+func NewDatabase(dbPath string, scanDirs []string) (*Database, error) {
+	// If dbPath is empty, use default location in first scan directory
 	if dbPath == "" {
-		dbPath = filepath.Join(scanDir, ".aaa", "archive.db")
+		if len(scanDirs) == 0 {
+			return nil, fmt.Errorf("no scan directories configured")
+		}
+		dbPath = filepath.Join(scanDirs[0], ".aaa", "archive.db")
 	}
 
 	log.Info().Str("path", dbPath).Msg("Opening database")
@@ -100,7 +103,7 @@ func NewDatabase(dbPath, scanDir string) (*Database, error) {
 
 	database := &Database{
 		db:       db,
-		baseDir:  scanDir,
+		baseDirs: scanDirs,
 		filePath: dbPath,
 	}
 
@@ -461,21 +464,57 @@ func CalculateFileHash(filePath string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-// GetRelativePath converts an absolute path to relative path from base directory
+// GetRelativePath converts an absolute path to relative path from the appropriate base directory
 func (d *Database) GetRelativePath(absPath string) (string, error) {
-	rel, err := filepath.Rel(d.baseDir, absPath)
+	// Ensure we're working with clean absolute path
+	cleanAbsPath, err := filepath.Abs(absPath)
 	if err != nil {
-		return "", err
+		cleanAbsPath = filepath.Clean(absPath)
 	}
-	// Convert to forward slashes for consistency across platforms
-	return filepath.ToSlash(rel), nil
+
+	// Find which base directory this file belongs to
+	for _, baseDir := range d.baseDirs {
+		// Also ensure base directory is clean and absolute
+		cleanBaseDir, err := filepath.Abs(baseDir)
+		if err != nil {
+			cleanBaseDir = filepath.Clean(baseDir)
+		}
+
+		rel, err := filepath.Rel(cleanBaseDir, cleanAbsPath)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			// This base directory is a parent of the file
+			// Convert to forward slashes for consistency across platforms
+			return filepath.ToSlash(rel), nil
+		}
+	}
+
+	// If no base directory matches, log debug info and return error
+	log.Debug().
+		Str("file", cleanAbsPath).
+		Strs("base_dirs", d.baseDirs).
+		Msg("File not found in any base directory")
+	return "", fmt.Errorf("file %s is not within any configured base directory", cleanAbsPath)
 }
 
 // GetAbsolutePath converts a relative path to absolute path
+// Searches through all base directories to find where the file exists
 func (d *Database) GetAbsolutePath(relPath string) string {
 	// Convert from forward slashes to OS-specific
 	osPath := filepath.FromSlash(relPath)
-	return filepath.Join(d.baseDir, osPath)
+
+	// Try each base directory until we find where the file exists
+	for _, baseDir := range d.baseDirs {
+		absPath := filepath.Join(baseDir, osPath)
+		if _, err := os.Stat(absPath); err == nil {
+			return absPath
+		}
+	}
+
+	// If not found, return path with first base directory as fallback
+	if len(d.baseDirs) > 0 {
+		return filepath.Join(d.baseDirs[0], osPath)
+	}
+	return osPath
 }
 
 // ExecuteReadOnlyQuery executes a custom SQL query with strict validation

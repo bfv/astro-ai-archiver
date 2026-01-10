@@ -17,7 +17,7 @@ import (
 // Scanner handles scanning directories for FITS files
 type Scanner struct {
 	db        *Database
-	baseDir   string
+	baseDirs  []string // Changed from single baseDir to multiple baseDirs
 	recursive bool
 	force     bool
 
@@ -35,10 +35,13 @@ type Scanner struct {
 }
 
 // NewScanner creates a new scanner instance
-func NewScanner(db *Database, baseDir string, recursive, force bool) *Scanner {
+// Note: directories should already be expanded (wildcards resolved) and absolute paths
+func NewScanner(db *Database, directories []string, recursive, force bool) *Scanner {
+	log.Info().Strs("base_directories", directories).Msg("Scanner initialized with directories")
+
 	return &Scanner{
 		db:        db,
-		baseDir:   baseDir,
+		baseDirs:  directories,
 		recursive: recursive,
 		force:     force,
 		errors:    make([]string, 0),
@@ -46,25 +49,35 @@ func NewScanner(db *Database, baseDir string, recursive, force bool) *Scanner {
 	}
 }
 
-// Scan performs the directory scan
+// Scan performs the directory scan across all configured directories
 func (s *Scanner) Scan() (*ScanResult, error) {
 	startTime := time.Now()
 
 	log.Info().
-		Str("directory", s.baseDir).
+		Strs("directories", s.baseDirs).
 		Bool("recursive", s.recursive).
 		Bool("force", s.force).
 		Msg("Starting FITS file scan")
 
-	// Check if directory exists
-	if _, err := os.Stat(s.baseDir); os.IsNotExist(err) {
-		return nil, fmt.Errorf("directory does not exist: %s", s.baseDir)
+	if len(s.baseDirs) == 0 {
+		return nil, fmt.Errorf("no directories configured to scan")
 	}
 
-	// Walk the directory
-	err := s.walkDirectory(s.baseDir)
-	if err != nil {
-		return nil, fmt.Errorf("scan failed: %w", err)
+	// Walk all directories
+	for _, baseDir := range s.baseDirs {
+		// Check if directory exists
+		if _, err := os.Stat(baseDir); os.IsNotExist(err) {
+			log.Warn().Str("directory", baseDir).Msg("Directory does not exist, skipping")
+			s.addError(fmt.Sprintf("directory does not exist: %s", baseDir))
+			continue
+		}
+
+		log.Info().Str("directory", baseDir).Msg("Scanning directory")
+		err := s.walkDirectory(baseDir)
+		if err != nil {
+			log.Error().Err(err).Str("directory", baseDir).Msg("Failed to scan directory")
+			s.addError(fmt.Sprintf("failed to scan %s: %v", baseDir, err))
+		}
 	}
 
 	duration := time.Since(startTime)
