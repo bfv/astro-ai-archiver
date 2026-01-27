@@ -31,10 +31,12 @@ to AI assistants like Claude Desktop via stdio transport.`,
 
 func init() {
 	mcpServerCmd.Flags().StringP("config", "c", "config.yaml", "Path to configuration file")
+	mcpServerCmd.Flags().Bool("force-scan", false, "Force scan all files on startup, ignoring modification times")
 }
 
 func runMCPServer(cmd *cobra.Command, args []string) {
 	configFile, _ := cmd.Flags().GetString("config")
+	forceScan, _ := cmd.Flags().GetBool("force-scan")
 
 	// Load configuration
 	cfg, err := loadConfig(configFile)
@@ -69,8 +71,8 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 	// Start initial scan in background if configured
 	if cfg.Scan.OnStartup {
 		go func() {
-			log.Info().Msg("Starting initial scan in background")
-			scanner := NewScanner(db, expandedDirs, cfg.Scan.Recursive, false)
+			log.Info().Bool("force", forceScan).Msg("Starting initial scan in background")
+			scanner := NewScanner(db, expandedDirs, cfg.Scan.Recursive, forceScan)
 			result, err := scanner.Scan()
 			if err != nil {
 				log.Error().Err(err).Msg("Initial scan failed")
@@ -485,6 +487,7 @@ COLUMNS:
   utc_time        TEXT                             - Observation time in UTC (ISO8601 format)
   local_time      TEXT                             - Local observation time (ISO8601 format, nullable)
   julian_date     REAL                             - Julian date (nullable)
+  observation_date TEXT                            - Gregorian calendar date (YYYY-MM-DD format, derived from julian_date)
   software        TEXT                             - Acquisition software (e.g., "N.I.N.A", "Dwarf3")
   camera          TEXT                             - Camera identifier
   gain            REAL                             - Camera gain (nullable)
@@ -594,6 +597,7 @@ Main table containing all FITS file metadata.
 - utc_time (TEXT) - UTC timestamp (ISO8601 format: YYYY-MM-DD HH:MM:SS)
 - local_time (TEXT) - Local timestamp (ISO8601 format)
 - julian_date (REAL) - Julian date (MJD-OBS)
+- observation_date (TEXT) - Gregorian calendar date (YYYY-MM-DD format, derived from julian_date)
 - software (TEXT) - Capture software (e.g., 'N.I.N.A.', 'Dwarf Lab')
 - camera (TEXT) - Camera name/model
 - gain (REAL) - Camera gain setting

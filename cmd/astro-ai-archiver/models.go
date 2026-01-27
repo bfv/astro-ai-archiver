@@ -58,26 +58,27 @@ func StringOrSliceHookFunc() func(f reflect.Type, t reflect.Type, data interface
 
 // FITSFile represents a FITS file record in the database
 type FITSFile struct {
-	ID           int64          `db:"id"`
-	RelativePath string         `db:"relative_path"`
-	Hash         string         `db:"hash"`
-	FileModTime  int64          `db:"file_mod_time"`
-	RowModTime   int64          `db:"row_mod_time"`
-	Object       string         `db:"object"`
-	RA           *float64       `db:"ra"`
-	Dec          *float64       `db:"dec"`
-	Telescope    string         `db:"telescope"`
-	FocalLength  *float64       `db:"focal_length"`
-	Exposure     float64        `db:"exposure"`
-	UTCTime      sql.NullString `db:"utc_time"`
-	LocalTime    sql.NullString `db:"local_time"`
-	JulianDate   *float64       `db:"julian_date"`
-	Software     string         `db:"software"`
-	Camera       string         `db:"camera"`
-	Gain         *float64       `db:"gain"`
-	Offset       *int           `db:"offset"`
-	Filter       string         `db:"filter"`
-	ImageType    string         `db:"image_type"`
+	ID              int64          `db:"id"`
+	RelativePath    string         `db:"relative_path"`
+	Hash            string         `db:"hash"`
+	FileModTime     int64          `db:"file_mod_time"`
+	RowModTime      int64          `db:"row_mod_time"`
+	Object          string         `db:"object"`
+	RA              *float64       `db:"ra"`
+	Dec             *float64       `db:"dec"`
+	Telescope       string         `db:"telescope"`
+	FocalLength     *float64       `db:"focal_length"`
+	Exposure        float64        `db:"exposure"`
+	UTCTime         sql.NullString `db:"utc_time"`
+	LocalTime       sql.NullString `db:"local_time"`
+	JulianDate      *float64       `db:"julian_date"`
+	ObservationDate sql.NullString `db:"observation_date"`
+	Software        string         `db:"software"`
+	Camera          string         `db:"camera"`
+	Gain            *float64       `db:"gain"`
+	Offset          *int           `db:"offset"`
+	Filter          string         `db:"filter"`
+	ImageType       string         `db:"image_type"`
 }
 
 // Config represents the application configuration

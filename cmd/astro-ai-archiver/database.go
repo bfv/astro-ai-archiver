@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS fits_files (
     utc_time TEXT,
     local_time TEXT,
     julian_date REAL,
+    observation_date TEXT,
     software TEXT,
     camera TEXT,
     gain REAL,
@@ -192,9 +193,9 @@ func (d *Database) InsertOrUpdateFile(file *FITSFile) error {
 	query := `
 		INSERT INTO fits_files (
 			relative_path, hash, file_mod_time, object, ra, dec, telescope,
-			focal_length, exposure, utc_time, local_time, julian_date,
+			focal_length, exposure, utc_time, local_time, julian_date, observation_date,
 			software, camera, gain, offset, filter, image_type
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(relative_path) DO UPDATE SET
 			hash = excluded.hash,
 			file_mod_time = excluded.file_mod_time,
@@ -208,6 +209,7 @@ func (d *Database) InsertOrUpdateFile(file *FITSFile) error {
 			utc_time = excluded.utc_time,
 			local_time = excluded.local_time,
 			julian_date = excluded.julian_date,
+			observation_date = excluded.observation_date,
 			software = excluded.software,
 			camera = excluded.camera,
 			gain = excluded.gain,
@@ -219,7 +221,7 @@ func (d *Database) InsertOrUpdateFile(file *FITSFile) error {
 	_, err := d.db.Exec(query,
 		file.RelativePath, file.Hash, file.FileModTime, file.Object,
 		file.RA, file.Dec, file.Telescope, file.FocalLength, file.Exposure,
-		file.UTCTime, file.LocalTime, file.JulianDate, file.Software,
+		file.UTCTime, file.LocalTime, file.JulianDate, file.ObservationDate, file.Software,
 		file.Camera, file.Gain, file.Offset, file.Filter, file.ImageType,
 	)
 
@@ -231,7 +233,7 @@ func (d *Database) GetFileByPath(relativePath string) (*FITSFile, error) {
 	query := `
 		SELECT id, relative_path, hash, file_mod_time, row_mod_time,
 			   object, ra, dec, telescope, focal_length, exposure,
-			   utc_time, local_time, julian_date, software, camera,
+			   utc_time, local_time, julian_date, observation_date, software, camera,
 			   gain, offset, filter, image_type
 		FROM fits_files
 		WHERE relative_path = ?
@@ -242,7 +244,7 @@ func (d *Database) GetFileByPath(relativePath string) (*FITSFile, error) {
 		&file.ID, &file.RelativePath, &file.Hash, &file.FileModTime,
 		&file.RowModTime, &file.Object, &file.RA, &file.Dec, &file.Telescope,
 		&file.FocalLength, &file.Exposure, &file.UTCTime, &file.LocalTime,
-		&file.JulianDate, &file.Software, &file.Camera, &file.Gain,
+		&file.JulianDate, &file.ObservationDate, &file.Software, &file.Camera, &file.Gain,
 		&file.Offset, &file.Filter, &file.ImageType,
 	)
 
@@ -261,7 +263,7 @@ func (d *Database) QueryFiles(filters map[string]interface{}, limit, offset int)
 	query := `
 		SELECT id, relative_path, hash, file_mod_time, row_mod_time,
 			   object, ra, dec, telescope, focal_length, exposure,
-			   utc_time, local_time, julian_date, software, camera,
+			   utc_time, local_time, julian_date, observation_date, software, camera,
 			   gain, offset, filter, image_type
 		FROM fits_files
 		WHERE 1=1
@@ -335,7 +337,7 @@ func (d *Database) QueryFiles(filters map[string]interface{}, limit, offset int)
 			&file.ID, &file.RelativePath, &file.Hash, &file.FileModTime,
 			&file.RowModTime, &file.Object, &file.RA, &file.Dec, &file.Telescope,
 			&file.FocalLength, &file.Exposure, &file.UTCTime, &file.LocalTime,
-			&file.JulianDate, &file.Software, &file.Camera, &file.Gain,
+			&file.JulianDate, &file.ObservationDate, &file.Software, &file.Camera, &file.Gain,
 			&file.Offset, &file.Filter, &file.ImageType,
 		)
 		if err != nil {

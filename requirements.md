@@ -237,6 +237,7 @@ Single flat table containing all FITS file metadata:
 - `utc_time` TEXT (ISO8601 format)
 - `local_time` TEXT (ISO8601 format, nullable)
 - `julian_date` REAL (nullable)
+- `observation_date` TEXT (YYYY-MM-DD format, derived from julian_date)
 - `software` TEXT
 - `camera` TEXT
 - `gain` REAL (nullable)

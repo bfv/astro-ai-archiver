@@ -318,7 +318,94 @@ func (s *Scanner) extractMetadata(filePath, relPath string, fileInfo os.FileInfo
 	}
 
 	// Julian date
-	file.JulianDate = s.getFloatHeader(header, "JD", "JULIAN", "JD-OBS")
+	file.JulianDate = s.getFloatHeader(header, "MJD-OBS", "JD", "JULIAN", "JD-OBS")
+
+	// Calculate observation date from Julian date
+	if file.JulianDate != nil {
+		log.Debug().Float64("julian_date", *file.JulianDate).Msg("Found Julian date, converting to observation date")
+
+		// Convert Julian date to Gregorian date
+		// Julian Date Number is days since January 1, 4713 BCE in proleptic Julian calendar
+		// Modified Julian Date (MJD) = JD - 2400000.5
+		// We assume the julian_date field contains Modified Julian Date (MJD) as that's common in FITS
+		jd := *file.JulianDate + 2400000.5
+
+		// Convert Julian Day Number to Gregorian date
+		// Algorithm from Meeus, "Astronomical Algorithms"
+		a := int(jd + 0.5)
+		var b int
+		if a >= 2299161 {
+			alpha := int((float64(a) - 1867216.25) / 36524.25)
+			b = a + 1 + alpha - alpha/4
+		} else {
+			b = a
+		}
+		c := b + 1524
+		d := int((float64(c) - 122.1) / 365.25)
+		e := int(365.25 * float64(d))
+		f := int((float64(c) - float64(e)) / 30.6001)
+
+		day := c - e - int(30.6001*float64(f))
+		var month int
+		if f <= 13 {
+			month = f - 1
+		} else {
+			month = f - 13
+		}
+		var year int
+		if month > 2 {
+			year = d - 4716
+		} else {
+			year = d - 4715
+		}
+
+		// Format as YYYY-MM-DD
+		dateStr := fmt.Sprintf("%04d-%02d-%02d", year, month, day)
+		file.ObservationDate = sql.NullString{String: dateStr, Valid: true}
+		log.Debug().Str("observation_date", dateStr).Msg("Calculated observation date")
+	} else {
+		log.Debug().Msg("No Julian date found, trying to derive observation_date from utc_time")
+		// If no Julian date, try to derive observation date from UTC time
+		if file.UTCTime.Valid {
+			// Parse UTC time and extract just the date part
+			if t, err := time.Parse(time.RFC3339, file.UTCTime.String); err == nil {
+				dateStr := t.Format("2006-01-02")
+				file.ObservationDate = sql.NullString{String: dateStr, Valid: true}
+				log.Debug().Str("observation_date", dateStr).Msg("Calculated observation date from UTC time")
+			} else {
+				log.Debug().Err(err).Str("utc_time", file.UTCTime.String).Msg("Failed to parse UTC time for observation date")
+			}
+		} else {
+			log.Debug().Msg("No UTC time available either, trying to parse DATE-OBS directly")
+			// Try to get date directly from headers in various formats
+			if dateStr := s.getStringHeader(header, "DATE-OBS", "DATE_OBS", "DATEOBS"); dateStr != "" {
+				// Try various date formats
+				formats := []string{
+					"2006-01-02T15:04:05",
+					"2006-01-02T15:04:05.000",
+					"2006-01-02T15:04:05Z",
+					"2006-01-02T15:04:05.000Z",
+					"2006-01-02 15:04:05",
+					"2006-01-02",
+				}
+
+				for _, format := range formats {
+					if t, err := time.Parse(format, dateStr); err == nil {
+						obsDate := t.Format("2006-01-02")
+						file.ObservationDate = sql.NullString{String: obsDate, Valid: true}
+						log.Debug().Str("observation_date", obsDate).Str("format", format).Msg("Calculated observation date from DATE-OBS")
+						break
+					}
+				}
+
+				if !file.ObservationDate.Valid {
+					log.Debug().Str("date_obs", dateStr).Msg("Could not parse DATE-OBS in any known format")
+				}
+			} else {
+				log.Debug().Msg("No date information found, observation_date will be null")
+			}
+		}
+	}
 
 	// Software/Platform
 	file.Software = s.getStringHeader(header, "SWCREATE", "SOFTWARE", "PROGRAM", "CREATOR")
