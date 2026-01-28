@@ -15,11 +15,11 @@ GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 
 # Version info
-VERSION=0.1.0
+VERSION?=dev-latest
 BUILD_TIME=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
 
 # Build flags
-LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)"
+LDFLAGS=-ldflags "-X github.com/yourusername/astro-ai-archiver/cmd/astro-ai-archiver/mcp-server.Version=$(VERSION) -X main.buildTime=$(BUILD_TIME)"
 
 # Source
 MAIN_PATH=./cmd/astro-ai-archiver

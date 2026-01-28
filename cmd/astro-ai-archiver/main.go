@@ -9,8 +9,6 @@ import (
 	mcpserver "github.com/yourusername/astro-ai-archiver/cmd/astro-ai-archiver/mcp-server"
 )
 
-var version = "0.1.0"
-
 var rootCmd = &cobra.Command{
 	Use:   "astro-ai-archiver",
 	Short: "MCP server for FITS file archival and querying",
@@ -20,7 +18,7 @@ to query astronomical observation data.
 
 All data remains local on your computer. The MCP server communicates via stdio
 and can be integrated with Claude Desktop for natural language queries.`,
-	Version: version,
+	Version: mcpserver.Version,
 }
 
 func main() {

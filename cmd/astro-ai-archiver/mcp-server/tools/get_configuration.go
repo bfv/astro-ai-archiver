@@ -8,7 +8,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func RegisterGetConfiguration(s *mcp.Server, cfg Config, dbPath string) {
+func RegisterGetConfiguration(s *mcp.Server, cfg Config, dbPath string, version string) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_configuration",
 		Description: "Show current AAA configuration (scan directory, database path, etc.)",
@@ -16,6 +16,7 @@ func RegisterGetConfiguration(s *mcp.Server, cfg Config, dbPath string) {
 		log.Info().Str("tool", "get_configuration").Msg("Tool called")
 
 		config := map[string]interface{}{
+			"version":          version,
 			"scan_directories": cfg.GetScanDirectories(),
 			"recursive":        cfg.GetScanRecursive(),
 			"scan_on_startup":  cfg.GetScanOnStartup(),

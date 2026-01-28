@@ -18,7 +18,10 @@ import (
 	"github.com/yourusername/astro-ai-archiver/cmd/astro-ai-archiver/mcp-server/tools"
 )
 
-var mcpServer *mcp.Server
+var (
+	mcpServer *mcp.Server
+	Version   = "<not-set>" // Default version, set via ldflags during build
+)
 
 func RunMCPServer(cmd *cobra.Command, args []string) {
 	configFile, _ := cmd.Flags().GetString("config")
@@ -34,7 +37,7 @@ func RunMCPServer(cmd *cobra.Command, args []string) {
 	InitLogging(cfg.Logging.Level, cfg.Logging.Format)
 
 	log.Info().
-		Str("version", "0.1.0").
+		Str("version", Version).
 		Str("config", configFile).
 		Msg("Starting Astro AI Archiver MCP Server")
 
@@ -76,14 +79,14 @@ func RunMCPServer(cmd *cobra.Command, args []string) {
 	// Create MCP server
 	mcpServer = mcp.NewServer(&mcp.Implementation{
 		Name:    "astro-ai-archiver",
-		Version: "0.1.0",
+		Version: Version,
 	}, nil)
 
 	// Register resources
 	registerResources(mcpServer, db)
 
 	// Register tools
-	tools.RegisterAll(mcpServer, db, cfg, expandedDirs, cfg.Scan.Recursive)
+	tools.RegisterAll(mcpServer, db, cfg, expandedDirs, cfg.Scan.Recursive, Version)
 
 	// Start server with configured transport
 	log.Info().

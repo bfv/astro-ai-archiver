@@ -14,13 +14,13 @@ var (
 )
 
 // RegisterAll registers all MCP tools
-func RegisterAll(s *mcp.Server, db Database, cfg Config, scanDirs []string, recursive bool) {
+func RegisterAll(s *mcp.Server, db Database, cfg Config, scanDirs []string, recursive bool, version string) {
 	RegisterQueryFitsArchive(s, db)
 	RegisterGetFileDetails(s, db)
 	RegisterGetArchiveSummary(s, db)
 	RegisterRescanFitsDirectory(s, db, scanDirs, recursive)
 	RegisterGetScanStatus(s)
-	RegisterGetConfiguration(s, cfg, db.GetFilePath())
+	RegisterGetConfiguration(s, cfg, db.GetFilePath(), version)
 	RegisterExecuteSqlQuery(s, db)
 	RegisterGetDatabaseSchema(s)
 

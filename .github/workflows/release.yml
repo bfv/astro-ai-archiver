@@ -44,7 +44,7 @@ jobs:
           fi
 
       - name: Build all targets
-        run: make build-all
+        run: make build-all VERSION=${{ steps.version.outputs.version }}
 
       - name: List build artifacts
         run: ls -lh build/
