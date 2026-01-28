@@ -59,7 +59,7 @@ jobs:
           release_name: Release ${{ steps.version.outputs.version }}
           draft: false
           prerelease: ${{ steps.prerelease.outputs.prerelease }}
-          generate_release_notes: ${{ steps.prerelease.outputs.prerelease == 'false' }}
+          #generate_release_notes: ${{ steps.prerelease.outputs.prerelease == 'false' }}
 
       - name: Upload Linux AMD64
         uses: actions/upload-release-asset@v1
