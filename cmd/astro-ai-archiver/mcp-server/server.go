@@ -27,6 +27,11 @@ func RunMCPServer(cmd *cobra.Command, args []string) {
 	configFile, _ := cmd.Flags().GetString("config")
 	forceScan, _ := cmd.Flags().GetBool("force-scan")
 
+	// Log version first (always, even if config fails)
+	log.Info().
+		Str("version", Version).
+		Msg("Starting Astro AI Archiver MCP")
+
 	// Load configuration
 	cfg, err := loadConfig(configFile)
 	if err != nil {
@@ -36,10 +41,10 @@ func RunMCPServer(cmd *cobra.Command, args []string) {
 	// Initialize logging from config
 	InitLogging(cfg.Logging.Level, cfg.Logging.Format)
 
+	// Log configuration file path
 	log.Info().
-		Str("version", Version).
 		Str("config", configFile).
-		Msg("Starting Astro AI Archiver MCP Server")
+		Msg("Configuration loaded")
 
 	// Expand wildcards in scan directories
 	expandedDirs := expandDirectories(cfg.Scan.Directory)
