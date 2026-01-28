@@ -138,4 +138,4 @@ jobs:
           push: true
           tags: |
             ${{ env.DOCKERHUB_USERNAME }}/astro-archiver:${{ steps.version.outputs.version }}
-            ${{ env.DOCKERHUB_USERNAME }}/astro-archiver:latest
+            ${{ steps.prerelease.outputs.prerelease == 'false' && format('{0}/astro-archiver:latest', env.DOCKERHUB_USERNAME) || '' }}
