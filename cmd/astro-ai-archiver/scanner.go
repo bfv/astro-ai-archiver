@@ -270,7 +270,7 @@ func (s *Scanner) extractMetadata(filePath, relPath string, fileInfo os.FileInfo
 	// Calculate file hash
 	hash, err := CalculateFileHash(filePath)
 	if err != nil {
-		log.Warn().Str("file", relPath).Err(err).Msg("Failed to calculate hash")
+		log.Debug().Str("file", relPath).Err(err).Msg("Failed to calculate hash")
 		hash = ""
 	}
 

@@ -1,0 +1,21 @@
+# HTTP Transport Example Configuration
+# This configuration enables HTTP transport on port 8080
+
+scan:
+  directory: "C:\\Users\\YourName\\Documents\\Astrophotography"
+  recursive: true
+  on_startup: true
+
+database:
+  path: ""
+
+# Enable HTTP transport (instead of default stdio)
+transport:
+  type: "http"
+  http:
+    host: "localhost"  # Use "0.0.0.0" for remote access, "localhost" for local only
+    port: 8080
+
+logging:
+  level: "info"
+  format: "console"

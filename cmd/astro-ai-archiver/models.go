@@ -91,6 +91,13 @@ type Config struct {
 	Database struct {
 		Path string `mapstructure:"path"`
 	} `mapstructure:"database"`
+	Transport struct {
+		Type string `yaml:"type" mapstructure:"type"` // "stdio" or "http"
+		HTTP struct {
+			Host string `yaml:"host" mapstructure:"host"`
+			Port int    `yaml:"port" mapstructure:"port"`
+		} `yaml:"http" mapstructure:"http"`
+	} `yaml:"transport" mapstructure:"transport"`
 	Logging struct {
 		Level  string `mapstructure:"level"`
 		Format string `mapstructure:"format"`

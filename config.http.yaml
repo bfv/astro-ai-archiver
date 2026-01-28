@@ -1,5 +1,5 @@
-# Example configuration for Astro AI Archiver
-# Copy this to config.yaml and modify as needed
+# Example configuration for HTTP transport
+# Copy this to config.yaml to use HTTP instead of stdio
 
 scan:
   directory: "C:\\Users\\YourName\\Documents\\Astrophotography"  # Path to your FITS files
@@ -10,11 +10,11 @@ database:
   path: ""  # Leave empty to use default: {scan.directory}/.aaa.db
 
 transport:
-  type: "stdio"  # "stdio" or "http"
+  type: "http"           # Use HTTP transport instead of stdio
   http:
-    host: "localhost"  # "localhost" = local only, "0.0.0.0" = all interfaces (remote access)
-    port: 8080         # Port number for HTTP server
+    host: "localhost"    # HTTP server host
+    port: 8080           # HTTP server port
 
 logging:
-  level: "info"    # debug, info, warn, error
-  format: "console"  # console or json
+  level: "info"          # debug, info, warn, error
+  format: "console"      # console or json

@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -99,9 +102,13 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 	// Register tools
 	registerTools(mcpServer, db, cfg)
 
-	// Start server (stdio transport)
-	log.Info().Msg("MCP server ready, listening on stdio")
-	if err := mcpServer.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+	// Start server with configured transport
+	log.Info().
+		Str("transport", getTransportType(cfg)).
+		Str("details", getTransportDetails(cfg)).
+		Msg("MCP server ready")
+
+	if err := startMCPServer(mcpServer, cfg); err != nil {
 		log.Fatal().Err(err).Msg("Server error")
 	}
 }
@@ -395,64 +402,43 @@ func registerTools(s *mcp.Server, db *Database, cfg *Config) {
 	// execute_sql_query
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "execute_sql_query",
-		Description: "Execute a custom SQL query on the FITS archive. Only SELECT queries are allowed. Use this for: counting files (COUNT), statistics (AVG, SUM, MIN, MAX), grouping (GROUP BY), aggregations, and any custom filtering. For retrieving individual file records use query_fits_archive.",
+		Description: "Execute a custom SQL query on the FITS archive database. Only SELECT queries are allowed. Use this for counting, statistics, aggregations, or complex queries not covered by other tools.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"query": map[string]interface{}{
+					"type":        "string",
+					"description": "SQL SELECT query to execute. Only SELECT statements are allowed for safety. Table name is 'fits_files'. Use the database schema resource for column names.",
+				},
+			},
+			"required": []string{"query"},
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args map[string]interface{}) (*mcp.CallToolResult, interface{}, error) {
 		log.Info().Str("tool", "execute_sql_query").Interface("params", args).Msg("Tool called")
 
-		sqlQuery, ok := args["query"].(string)
-		if !ok || sqlQuery == "" {
+		query, ok := args["query"].(string)
+		if !ok {
 			log.Error().Str("tool", "execute_sql_query").Msg("Tool failed: query required")
 			return nil, nil, fmt.Errorf("query parameter is required")
 		}
 
-		// Validate and execute query
-		result, err := db.ExecuteReadOnlyQuery(sqlQuery)
+		results, err := db.ExecuteReadOnlyQuery(query)
 		if err != nil {
-			log.Error().Err(err).Str("tool", "execute_sql_query").Str("query", sqlQuery).Msg("Tool failed")
-			return nil, nil, fmt.Errorf("query execution failed: %w", err)
+			log.Error().Err(err).Str("tool", "execute_sql_query").Msg("Tool failed")
+			return nil, nil, fmt.Errorf("query failed: %w", err)
 		}
 
 		response := map[string]interface{}{
-			"rows":      result,
-			"row_count": len(result),
-			"query":     sqlQuery,
-		}
-
-		// Build a text summary of results
-		textResult := fmt.Sprintf("Query returned %d row(s)\n\n", len(result))
-
-		// For small result sets (≤10 rows), include the actual data in text form
-		if len(result) > 0 && len(result) <= 10 {
-			// Get column names from first row
-			firstRow := result[0]
-			var columns []string
-			for col := range firstRow {
-				columns = append(columns, col)
-			}
-
-			// Add each row
-			for i, row := range result {
-				textResult += fmt.Sprintf("Row %d:\n", i+1)
-				for _, col := range columns {
-					textResult += fmt.Sprintf("  %s: %v\n", col, row[col])
-				}
-				if i < len(result)-1 {
-					textResult += "\n"
-				}
-			}
-		} else if len(result) > 10 {
-			textResult += fmt.Sprintf("(First 3 rows shown)\n\n")
-			for i := 0; i < 3 && i < len(result); i++ {
-				textResult += fmt.Sprintf("Row %d: %v\n", i+1, result[i])
-			}
-			textResult += fmt.Sprintf("\n...and %d more rows", len(result)-3)
+			"results": results,
+			"count":   len(results),
+			"query":   query,
 		}
 
 		log.Trace().Str("tool", "execute_sql_query").Interface("response", response).Msg("Tool response")
 
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: textResult},
+				&mcp.TextContent{Text: fmt.Sprintf("Query returned %d rows", len(results))},
 			},
 		}, response, nil
 	})
@@ -460,107 +446,45 @@ func registerTools(s *mcp.Server, db *Database, cfg *Config) {
 	// get_database_schema
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_database_schema",
-		Description: "Get the complete database schema including table structure, columns with types and descriptions, indexes, and example queries. Use this before constructing custom SQL queries.",
+		Description: "Get the complete database schema including table structure, columns, types, and example queries",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args map[string]interface{}) (*mcp.CallToolResult, interface{}, error) {
 		log.Info().Str("tool", "get_database_schema").Msg("Tool called")
 
-		schema := `DATABASE SCHEMA - FITS Archive
-========================================
-
-TABLE: fits_files
------------------
-Primary table containing all FITS file metadata.
-
-COLUMNS:
-  id              INTEGER PRIMARY KEY AUTOINCREMENT
-  relative_path   TEXT NOT NULL UNIQUE           - Path relative to scan directory
-  hash            TEXT                             - SHA256 hash of file content
-  file_mod_time   INTEGER                          - File modification time (Unix timestamp)
-  row_mod_time    INTEGER DEFAULT (strftime('%s', 'now')) - Database row update time
-  
-  object          TEXT NOT NULL                    - Target object name (e.g., "NGC2903", "M31")
-  ra              REAL NOT NULL                    - Right Ascension in degrees
-  dec             REAL NOT NULL                    - Declination in degrees
-  telescope       TEXT NOT NULL                    - Telescope identifier
-  focal_length    REAL NOT NULL                    - Focal length in mm
-  exposure        REAL NOT NULL                    - Exposure time in seconds
-  utc_time        TEXT                             - Observation time in UTC (ISO8601 format)
-  local_time      TEXT                             - Local observation time (ISO8601 format, nullable)
-  julian_date     REAL                             - Julian date (nullable)
-  observation_date TEXT                            - Gregorian calendar date (YYYY-MM-DD format, derived from julian_date)
-  software        TEXT                             - Acquisition software (e.g., "N.I.N.A", "Dwarf3")
-  camera          TEXT                             - Camera identifier
-  gain            REAL                             - Camera gain (nullable)
-  offset          INTEGER                          - Camera offset (nullable)
-  filter          TEXT NOT NULL                    - Filter name (e.g., "Ha", "OIII", "Lum", "Red")
-  image_type      TEXT                             - Image type (typically "LIGHT")
-
-INDEXES:
-  idx_object      ON object
-  idx_filter      ON filter
-  idx_telescope   ON telescope
-  idx_utc_time    ON utc_time
-  idx_hash        ON hash
-
-NOTES:
-- All date/time fields use ISO8601 format (YYYY-MM-DD HH:MM:SS)
-- Text searches should use LIKE with wildcards: WHERE object LIKE '%NGC%'
-- Date filtering: WHERE utc_time BETWEEN '2025-01-01' AND '2025-12-31'
-- Use strftime() for date grouping: strftime('%Y-%m', utc_time)
-
-EXAMPLE QUERIES:
-----------------
-
-1. Files by target:
-   SELECT object, COUNT(*) as count, SUM(exposure) as total_exposure
-   FROM fits_files
-   GROUP BY object
-   ORDER BY count DESC
-
-2. Monthly observation summary:
-   SELECT strftime('%Y-%m', utc_time) as month, 
-          COUNT(*) as files,
-          COUNT(DISTINCT object) as unique_targets,
-          SUM(exposure)/3600.0 as hours
-   FROM fits_files
-   GROUP BY month
-   ORDER BY month DESC
-
-3. Filter usage statistics:
-   SELECT filter, 
-          COUNT(*) as count,
-          AVG(exposure) as avg_exposure,
-          SUM(exposure)/3600.0 as total_hours
-   FROM fits_files
-   GROUP BY filter
-   ORDER BY count DESC
-
-4. Specific target observations:
-   SELECT utc_time, filter, exposure, telescope, camera
-   FROM fits_files
-   WHERE object LIKE '%M31%'
-   ORDER BY utc_time DESC
-
-5. Date range with multiple filters:
-   SELECT object, filter, COUNT(*) as subs, SUM(exposure) as total_exp
-   FROM fits_files
-   WHERE utc_time BETWEEN '2025-05-01' AND '2025-06-30'
-     AND filter IN ('Ha', 'OIII', 'SII')
-   GROUP BY object, filter
-   ORDER BY object, filter
-`
-
-		response := map[string]interface{}{
-			"schema": schema,
+		schema := map[string]interface{}{
+			"table": "fits_files",
+			"columns": []map[string]interface{}{
+				{"name": "id", "type": "INTEGER", "description": "Unique file identifier"},
+				{"name": "relative_path", "type": "TEXT", "description": "Path relative to scan directory"},
+				{"name": "hash", "type": "TEXT", "description": "SHA256 hash of file content"},
+				{"name": "file_mod_time", "type": "INTEGER", "description": "File modification time (Unix timestamp)"},
+				{"name": "row_mod_time", "type": "INTEGER", "description": "Database row modification time (Unix timestamp)"},
+				{"name": "object", "type": "TEXT", "description": "Target object name (e.g., 'NGC2903', 'M31')"},
+				{"name": "ra", "type": "REAL", "description": "Right Ascension in degrees"},
+				{"name": "dec", "type": "REAL", "description": "Declination in degrees"},
+				{"name": "telescope", "type": "TEXT", "description": "Telescope name/model"},
+				{"name": "focal_length", "type": "REAL", "description": "Focal length in mm"},
+				{"name": "exposure", "type": "REAL", "description": "Exposure time in seconds"},
+				{"name": "utc_time", "type": "TEXT", "description": "UTC timestamp (ISO8601)"},
+				{"name": "local_time", "type": "TEXT", "description": "Local timestamp (ISO8601)"},
+				{"name": "julian_date", "type": "REAL", "description": "Julian date (MJD-OBS)"},
+				{"name": "observation_date", "type": "TEXT", "description": "Observation date (YYYY-MM-DD)"},
+				{"name": "software", "type": "TEXT", "description": "Capture software"},
+				{"name": "camera", "type": "TEXT", "description": "Camera name/model"},
+				{"name": "gain", "type": "REAL", "description": "Camera gain setting"},
+				{"name": "offset", "type": "INTEGER", "description": "Camera offset setting"},
+				{"name": "filter", "type": "TEXT", "description": "Filter name (e.g., 'L', 'Ha', 'OIII')"},
+				{"name": "image_type", "type": "TEXT", "description": "Image type (typically 'LIGHT')"},
+			},
+			"indexes": []string{"object", "filter", "telescope", "utc_time", "hash", "relative_path"},
 		}
 
-		log.Trace().Str("tool", "get_database_schema").Msg("Tool response")
+		log.Trace().Str("tool", "get_database_schema").Interface("response", schema).Msg("Tool response")
 
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: "Database schema retrieved successfully"},
+				&mcp.TextContent{Text: "Database schema retrieved"},
 			},
-		}, response, nil
+		}, schema, nil
 	})
 
 	log.Info().Int("tools", 8).Msg("MCP tools registered")
@@ -720,4 +644,106 @@ func expandDirectories(patterns []string) []string {
 		}
 	}
 	return expandedDirs
+}
+
+// startMCPServer starts the MCP server with the configured transport
+func startMCPServer(server *mcp.Server, cfg *Config) error {
+	transportType := getTransportType(cfg)
+
+	switch transportType {
+	case "stdio":
+		return server.Run(context.Background(), &mcp.StdioTransport{})
+
+	case "http":
+		return startHTTPServer(server, cfg)
+
+	default:
+		return fmt.Errorf("unsupported transport type: %s (supported: stdio, http)", transportType)
+	}
+}
+
+// startHTTPServer starts the HTTP server using StreamableHTTPHandler
+func startHTTPServer(server *mcp.Server, cfg *Config) error {
+	// Get HTTP configuration
+	host := cfg.Transport.HTTP.Host
+	if host == "" {
+		host = "localhost"
+	}
+	port := cfg.Transport.HTTP.Port
+	if port == 0 {
+		port = 8080
+	}
+
+	// Create HTTP handler
+	handler := mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
+		return server
+	}, nil)
+
+	// Create HTTP server
+	httpServer := &http.Server{
+		Addr:    fmt.Sprintf("%s:%d", host, port),
+		Handler: handler,
+	}
+
+	// Setup graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle shutdown signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Start server in goroutine
+	go func() {
+		log.Info().Str("addr", httpServer.Addr).Msg("Starting HTTP server")
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error().Err(err).Msg("HTTP server error")
+			cancel()
+		}
+	}()
+
+	// Wait for shutdown signal
+	select {
+	case <-sigChan:
+		log.Info().Msg("Shutdown signal received")
+	case <-ctx.Done():
+		log.Info().Msg("Context cancelled")
+	}
+
+	// Graceful shutdown
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	log.Info().Msg("Shutting down HTTP server...")
+	return httpServer.Shutdown(shutdownCtx)
+}
+
+// getTransportType returns the transport type with stdio as default
+func getTransportType(cfg *Config) string {
+	if cfg.Transport.Type == "" {
+		return "stdio"
+	}
+	return cfg.Transport.Type
+}
+
+// getTransportDetails returns a string with transport details for logging
+func getTransportDetails(cfg *Config) string {
+	transportType := getTransportType(cfg)
+
+	switch transportType {
+	case "stdio":
+		return "stdio transport"
+	case "http":
+		host := cfg.Transport.HTTP.Host
+		if host == "" {
+			host = "localhost"
+		}
+		port := cfg.Transport.HTTP.Port
+		if port == 0 {
+			port = 8080
+		}
+		return fmt.Sprintf("http transport on %s:%d", host, port)
+	default:
+		return "unknown transport"
+	}
 }
