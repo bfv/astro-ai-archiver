@@ -514,7 +514,7 @@ func (s *Scanner) addError(msg string) {
 	log.Error().Msg(msg)
 }
 
-// normalizeTarget normalizes object/target names
+// normalizeTarget normalizes astronomical target names
 // - Uppercases catalog prefixes (M, NGC, IC, SH2, etc.)
 // - Removes space between catalog prefix and number (M 31 -> M31, NGC 7822 -> NGC7822)
 // - Special case: SH2 uses dash (SH2 159 -> SH2-159)
@@ -524,23 +524,27 @@ func (s *Scanner) normalizeTarget(target string) string {
 		return ""
 	}
 
-	// Match catalog prefix and number with optional space
-	re := regexp.MustCompile(`^([A-Za-z]+\d*)\s+(\d+)`)
-	if matches := re.FindStringSubmatch(target); matches != nil {
-		prefix := strings.ToUpper(matches[1])
-		number := matches[2]
-		rest := target[len(matches[0]):]
-		
-		// Special case: SH2 uses dash separator
-		if prefix == "SH2" {
-			target = prefix + "-" + number + rest
-		} else {
-			target = prefix + number + rest
+	// Handle catalog prefixes with regex (case-insensitive)
+	target = catalogPrefixRegex.ReplaceAllStringFunc(target, func(match string) string {
+		parts := strings.Fields(match)
+		if len(parts) == 2 {
+			prefix := strings.ToUpper(parts[0])
+			if prefix == "SH2" {
+				return prefix + "-" + parts[1]
+			}
+			return prefix + parts[1]
 		}
-	}
+		return match
+	})
 
-	// Replace remaining spaces with underscores
-	target = strings.ReplaceAll(target, " ", "_")
+	// Replace remaining spaces with underscores (single pass)
+	target = multiSpaceRegex.ReplaceAllString(target, "_")
 
 	return target
 }
+
+// Pre-compile regex patterns as package-level variables
+var (
+	catalogPrefixRegex = regexp.MustCompile(`(?i)\b(M|NGC|IC|SH2)\s+(\d+)`)
+	multiSpaceRegex    = regexp.MustCompile(`\s+`)
+)
