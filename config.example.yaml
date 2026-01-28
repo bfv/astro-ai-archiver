@@ -5,6 +5,7 @@ scan:
   directory: "C:\\Users\\YourName\\Documents\\Astrophotography"  # Path to your FITS files
   recursive: true                                                # Scan subdirectories
   on_startup: true                                               # Scan on server startup
+  workers: 4                                                     # Number of parallel workers (default: runtime.NumCPU())
 
 database:
   path: ""  # Leave empty to use default: {scan.directory}/.aaa.db

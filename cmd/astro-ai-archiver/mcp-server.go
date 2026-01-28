@@ -73,7 +73,7 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 	if cfg.Scan.OnStartup {
 		go func() {
 			log.Info().Bool("force", forceScan).Msg("Starting initial scan in background")
-			scanner := NewScanner(db, expandedDirs, cfg.Scan.Recursive, forceScan)
+			scanner := NewScanner(db, expandedDirs, cfg.Scan.Recursive, forceScan, cfg.Scan.Workers)
 			result, err := scanner.Scan()
 			if err != nil {
 				log.Error().Err(err).Msg("Initial scan failed")

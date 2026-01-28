@@ -126,7 +126,7 @@ func (db *Database) GetFilePath() string {
 
 // NewScanner creates a new scanner (implements tools.Database interface)
 func (db *Database) NewScanner(directories []string, recursive, force bool) interface{} {
-	return NewScanner(db, directories, recursive, force)
+	return NewScanner(db, directories, recursive, force, 0) // 0 = use default
 }
 
 // initSchema creates the database schema if it doesn't exist

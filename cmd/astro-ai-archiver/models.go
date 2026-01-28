@@ -87,6 +87,7 @@ type Config struct {
 		Directory DirectoryConfig `yaml:"directory" mapstructure:"directory"`
 		Recursive bool            `yaml:"recursive" mapstructure:"recursive"`
 		OnStartup bool            `yaml:"on_startup" mapstructure:"on_startup"`
+		Workers   int             `yaml:"workers" mapstructure:"workers"`
 	} `yaml:"scan" mapstructure:"scan"`
 	Database struct {
 		Path string `mapstructure:"path"`

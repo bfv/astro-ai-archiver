@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,7 @@ type Scanner struct {
 	baseDirs  []string // Changed from single baseDir to multiple baseDirs
 	recursive bool
 	force     bool
+	workers   int
 
 	// Statistics
 	scanned  atomic.Int64
@@ -36,14 +38,23 @@ type Scanner struct {
 
 // NewScanner creates a new scanner instance
 // Note: directories should already be expanded (wildcards resolved) and absolute paths
-func NewScanner(db *Database, directories []string, recursive, force bool) *Scanner {
-	log.Info().Strs("base_directories", directories).Msg("Scanner initialized with directories")
+func NewScanner(db *Database, directories []string, recursive, force bool, workers int) *Scanner {
+	// Default to runtime.NumCPU() if not specified or invalid
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
+
+	log.Info().
+		Strs("base_directories", directories).
+		Int("workers", workers).
+		Msg("Scanner initialized with directories")
 
 	return &Scanner{
 		db:        db,
 		baseDirs:  directories,
 		recursive: recursive,
 		force:     force,
+		workers:   workers,
 		errors:    make([]string, 0),
 		limit:     -1, // Limit to 25 files for testing
 	}
@@ -112,12 +123,11 @@ func (s *Scanner) walkDirectory(dir string) error {
 	}
 
 	// Process files in parallel using worker pool
-	const numWorkers = 4
 	fileChan := make(chan string, 100)
 	var wg sync.WaitGroup
 
 	// Start workers
-	for i := 0; i < numWorkers; i++ {
+	for i := 0; i < s.workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
