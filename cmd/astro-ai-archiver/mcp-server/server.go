@@ -65,6 +65,13 @@ func RunMCPServer(cmd *cobra.Command, args []string) {
 	// Start initial scan in background if configured
 	if cfg.Scan.OnStartup {
 		go func() {
+			// Try to begin scan, skip if already scanning
+			if !tools.BeginScan() {
+				log.Info().Msg("Scan already in progress, skipping initial scan")
+				return
+			}
+			defer tools.EndScan()
+			
 			log.Info().Bool("force", forceScan).Msg("Starting initial scan in background")
 			scanner := NewScanner(db, expandedDirs, cfg.Scan.Recursive, forceScan, cfg.Scan.Workers)
 			result, err := scanner.Scan()
@@ -77,7 +84,6 @@ func RunMCPServer(cmd *cobra.Command, args []string) {
 					Int("errors", len(result.Errors)).
 					Msg("Initial scan completed")
 			}
-			tools.SetLastScanTime(time.Now())
 		}()
 	}
 

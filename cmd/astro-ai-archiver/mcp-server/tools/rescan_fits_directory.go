@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog/log"
@@ -30,9 +29,8 @@ func RegisterRescanFitsDirectory(s *mcp.Server, db Database, scanDirs []string, 
 			force = f
 		}
 
-		scanMutex.Lock()
-		if scanState.Scanning {
-			scanMutex.Unlock()
+		// Try to begin scan
+		if !BeginScan() {
 			result := map[string]interface{}{
 				"status":  "already_running",
 				"message": "A scan is already in progress",
@@ -43,16 +41,9 @@ func RegisterRescanFitsDirectory(s *mcp.Server, db Database, scanDirs []string, 
 				},
 			}, result, nil
 		}
-		scanState.Scanning = true
-		scanMutex.Unlock()
 
 		go func() {
-			defer func() {
-				scanMutex.Lock()
-				scanState.Scanning = false
-				scanState.LastScanTime = time.Now()
-				scanMutex.Unlock()
-			}()
+			defer EndScan()
 
 			scanner := db.NewScanner(scanDirs, recursive, force)
 			// Use type assertion since we're working across packages
