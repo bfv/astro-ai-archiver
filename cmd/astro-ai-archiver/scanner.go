@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -303,7 +304,7 @@ func (s *Scanner) extractMetadata(filePath, relPath string, fileInfo os.FileInfo
 	// Try multiple common variations for each field
 
 	// Object/Target
-	file.Object = s.getStringHeader(header, "OBJECT", "TARGET", "OBJNAME")
+	file.Object = s.normalizeTarget(s.getStringHeader(header, "OBJECT", "TARGET", "OBJNAME"))
 
 	// RA/DEC
 	file.RA = s.getFloatHeader(header, "RA", "OBJCTRA", "RA_OBJ")
@@ -511,4 +512,35 @@ func (s *Scanner) addError(msg string) {
 	defer s.errorsMu.Unlock()
 	s.errors = append(s.errors, msg)
 	log.Error().Msg(msg)
+}
+
+// normalizeTarget normalizes object/target names
+// - Uppercases catalog prefixes (M, NGC, IC, SH2, etc.)
+// - Removes space between catalog prefix and number (M 31 -> M31, NGC 7822 -> NGC7822)
+// - Special case: SH2 uses dash (SH2 159 -> SH2-159)
+// - Replaces remaining spaces with underscores
+func (s *Scanner) normalizeTarget(target string) string {
+	if target == "" {
+		return ""
+	}
+
+	// Match catalog prefix and number with optional space
+	re := regexp.MustCompile(`^([A-Za-z]+\d*)\s+(\d+)`)
+	if matches := re.FindStringSubmatch(target); matches != nil {
+		prefix := strings.ToUpper(matches[1])
+		number := matches[2]
+		rest := target[len(matches[0]):]
+		
+		// Special case: SH2 uses dash separator
+		if prefix == "SH2" {
+			target = prefix + "-" + number + rest
+		} else {
+			target = prefix + number + rest
+		}
+	}
+
+	// Replace remaining spaces with underscores
+	target = strings.ReplaceAll(target, " ", "_")
+
+	return target
 }
