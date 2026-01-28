@@ -24,7 +24,7 @@ LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)"
 # Source
 MAIN_PATH=./cmd/astro-ai-archiver
 
-.PHONY: all build clean test deps help windows linux darwin windows-arm linux-arm darwin-arm
+.PHONY: all build build-verify build-all-verify clean test test-coverage test-scanner test-watch deps help windows linux darwin windows-arm linux-arm darwin-arm
 
 # Default target
 all: clean deps build
@@ -35,6 +35,14 @@ build:
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
+
+# Build with tests (recommended for releases)
+build-verify: test build
+	@echo "✓ Build verified with passing tests"
+
+# Build all platforms with tests (for releases)
+build-all-verify: test build-all
+	@echo "✓ All builds verified with passing tests"
 
 # Build for all platforms
 build-all: windows linux darwin windows-arm linux-arm darwin-arm
@@ -101,6 +109,23 @@ test:
 	@echo "Running tests..."
 	$(GOTEST) -v ./...
 
+# Run tests with coverage
+test-coverage:
+	@echo "Running tests with coverage..."
+	$(GOTEST) -v -coverprofile=coverage.out ./...
+	$(GOCMD) tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
+
+# Run specific test
+test-scanner:
+	@echo "Running scanner tests..."
+	$(GOTEST) -v $(MAIN_PATH) -run TestNormalizeTarget
+
+# Run all tests in watch mode (requires entr or similar)
+test-watch:
+	@echo "Running tests in watch mode..."
+	find . -name "*.go" | entr -c make test
+
 # Run with example config
 run:
 	@echo "Running..."
@@ -117,7 +142,9 @@ help:
 	@echo "Astro AI Archiver - Makefile commands:"
 	@echo ""
 	@echo "  make build          - Build for current platform"
+	@echo "  make build-verify   - Build with tests (recommended for releases)"
 	@echo "  make build-all      - Build for all platforms (Windows, Linux, macOS x64/ARM64)"
+	@echo "  make build-all-verify - Build all platforms with tests (for releases)"
 	@echo "  make windows        - Build for Windows x64"
 	@echo "  make windows-arm    - Build for Windows ARM64"
 	@echo "  make linux          - Build for Linux x64"
@@ -126,7 +153,10 @@ help:
 	@echo "  make darwin-arm     - Build for macOS ARM64 (Apple Silicon)"
 	@echo "  make clean          - Remove build artifacts"
 	@echo "  make deps           - Download dependencies"
-	@echo "  make test           - Run tests"
+	@echo "  make test           - Run all tests"
+	@echo "  make test-coverage  - Run tests with coverage report"
+	@echo "  make test-scanner   - Run scanner-specific tests (e.g., normalizeTarget)"
+	@echo "  make test-watch     - Run tests in watch mode (requires entr)"
 	@echo "  make run            - Run with example config"
 	@echo "  make install        - Install to GOPATH/bin"
 	@echo "  make help           - Show this help"
