@@ -45,10 +45,39 @@ scan:
 database:
   path: ""  # Leave empty for default location
 
+transport:
+  type: "stdio"  # "stdio" or "http"
+  http:
+    host: "localhost"  # Only used when type is "http"
+    port: 8080         # Only used when type is "http"
+
 logging:
   level: "info"
   format: "console"
 ```
+
+#### Transport Options
+
+The server supports two transport modes:
+
+- **stdio** (default): Standard input/output transport for local AI clients
+- **http**: HTTP transport for remote AI clients or web-based integrations
+
+For HTTP transport, use:
+
+```yaml
+transport:
+  type: "http"
+  http:
+    host: "localhost"  # "localhost" = local only, "0.0.0.0" = remote access
+    port: 8080
+```
+
+**Host Binding Options:**
+- `"localhost"`: Server accepteert alleen lokale verbindingen (veiliger)
+- `"0.0.0.0"`: Server accepteert verbindingen van alle netwerkinterfaces (voor remote access)
+
+Then connect to `http://localhost:8080` using MCP's HTTP transport protocol.
 
 ### 3. Run
 

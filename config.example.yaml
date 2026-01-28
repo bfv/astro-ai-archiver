@@ -9,6 +9,12 @@ scan:
 database:
   path: ""  # Leave empty to use default: {scan.directory}/.aaa.db
 
+transport:
+  type: "stdio"  # "stdio" or "http"
+  http:
+    host: "localhost"  # "localhost" = local only, "0.0.0.0" = all interfaces (remote access)
+    port: 8080         # Port number for HTTP server
+
 logging:
   level: "info"    # debug, info, warn, error
   format: "console"  # console or json

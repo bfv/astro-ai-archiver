@@ -13,6 +13,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 	_ "modernc.org/sqlite"
+
+	"github.com/yourusername/astro-ai-archiver/cmd/astro-ai-archiver/tools"
 )
 
 const schemaVersion = 1
@@ -115,6 +117,16 @@ func NewDatabase(dbPath string, scanDirs []string) (*Database, error) {
 	}
 
 	return database, nil
+}
+
+// GetFilePath returns the database file path (implements tools.Database interface)
+func (db *Database) GetFilePath() string {
+	return db.filePath
+}
+
+// NewScanner creates a new scanner (implements tools.Database interface)
+func (db *Database) NewScanner(directories []string, recursive, force bool) interface{} {
+	return NewScanner(db, directories, recursive, force)
 }
 
 // initSchema creates the database schema if it doesn't exist
@@ -229,7 +241,7 @@ func (d *Database) InsertOrUpdateFile(file *FITSFile) error {
 }
 
 // GetFileByPath retrieves a file by its relative path
-func (d *Database) GetFileByPath(relativePath string) (*FITSFile, error) {
+func (d *Database) GetFileByPath(relativePath string) (interface{}, error) {
 	query := `
 		SELECT id, relative_path, hash, file_mod_time, row_mod_time,
 			   object, ra, dec, telescope, focal_length, exposure,
@@ -259,7 +271,7 @@ func (d *Database) GetFileByPath(relativePath string) (*FITSFile, error) {
 }
 
 // QueryFiles performs a flexible query on FITS files
-func (d *Database) QueryFiles(filters map[string]interface{}, limit, offset int) ([]*FITSFile, error) {
+func (d *Database) QueryFiles(filters map[string]interface{}, limit, offset int) (interface{}, error) {
 	query := `
 		SELECT id, relative_path, hash, file_mod_time, row_mod_time,
 			   object, ra, dec, telescope, focal_length, exposure,
@@ -350,8 +362,8 @@ func (d *Database) QueryFiles(filters map[string]interface{}, limit, offset int)
 }
 
 // GetArchiveSummary returns statistics about the archive
-func (d *Database) GetArchiveSummary() (*ArchiveSummary, error) {
-	summary := &ArchiveSummary{}
+func (d *Database) GetArchiveSummary() (*tools.ArchiveSummary, error) {
+	summary := &tools.ArchiveSummary{}
 
 	// Total files and exposure
 	err := d.db.QueryRow(`

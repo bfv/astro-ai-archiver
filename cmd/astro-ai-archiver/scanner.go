@@ -185,11 +185,13 @@ func (s *Scanner) processFile(filePath string) {
 			return
 		}
 
-		// Skip if file hasn't been modified
-		if existing != nil && existing.FileModTime == fileInfo.ModTime().Unix() {
-			s.skipped.Add(1)
-			log.Debug().Str("file", relPath).Msg("Skipped (unchanged)")
-			return
+		// Skip if file hasn't been modified (need type assertion since GetFileByPath returns interface{})
+		if existing != nil {
+			if existingFile, ok := existing.(*FITSFile); ok && existingFile.FileModTime == fileInfo.ModTime().Unix() {
+				s.skipped.Add(1)
+				log.Debug().Str("file", relPath).Msg("Skipped (unchanged)")
+				return
+			}
 		}
 	}
 
@@ -238,7 +240,14 @@ func (s *Scanner) processFile(filePath string) {
 
 	// Determine if this was an add or update
 	existing, _ := s.db.GetFileByPath(relPath)
-	if existing != nil && existing.FileModTime != fileInfo.ModTime().Unix() {
+	isUpdate := false
+	if existing != nil {
+		if existingFile, ok := existing.(*FITSFile); ok {
+			isUpdate = existingFile.FileModTime != fileInfo.ModTime().Unix()
+		}
+	}
+
+	if isUpdate {
 		s.updated.Add(1)
 		log.Debug().Str("file", relPath).Msg("Updated")
 	} else {
@@ -270,7 +279,7 @@ func (s *Scanner) extractMetadata(filePath, relPath string, fileInfo os.FileInfo
 	// Calculate file hash
 	hash, err := CalculateFileHash(filePath)
 	if err != nil {
-		log.Warn().Str("file", relPath).Err(err).Msg("Failed to calculate hash")
+		log.Debug().Str("file", relPath).Err(err).Msg("Failed to calculate hash")
 		hash = ""
 	}
 
