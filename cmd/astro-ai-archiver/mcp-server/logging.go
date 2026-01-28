@@ -1,4 +1,4 @@
-package main
+package mcpserver
 
 import (
 	"os"
@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func initLogging(level, format string) {
+func InitLogging(level, format string) {
 	// Configure output format
 	if format == "json" {
 		// JSON output for production

@@ -1,4 +1,4 @@
-package main
+package mcpserver
 
 import (
 	"context"
@@ -15,10 +15,12 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/yourusername/astro-ai-archiver/cmd/astro-ai-archiver/tools"
+	"github.com/yourusername/astro-ai-archiver/cmd/astro-ai-archiver/mcp-server/tools"
 )
 
-func runMCPServer(cmd *cobra.Command, args []string) {
+var mcpServer *mcp.Server
+
+func RunMCPServer(cmd *cobra.Command, args []string) {
 	configFile, _ := cmd.Flags().GetString("config")
 	forceScan, _ := cmd.Flags().GetBool("force-scan")
 
@@ -29,7 +31,7 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 	}
 
 	// Initialize logging from config
-	initLogging(cfg.Logging.Level, cfg.Logging.Format)
+	InitLogging(cfg.Logging.Level, cfg.Logging.Format)
 
 	log.Info().
 		Str("version", "0.1.0").

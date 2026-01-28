@@ -1,12 +1,9 @@
 package main
 
 import (
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
-)
 
-var (
-	mcpServer *mcp.Server
+	"github.com/yourusername/astro-ai-archiver/cmd/astro-ai-archiver/mcp-server"
 )
 
 var mcpServerCmd = &cobra.Command{
@@ -14,7 +11,7 @@ var mcpServerCmd = &cobra.Command{
 	Short: "Start the MCP server",
 	Long: `Start the Model Context Protocol server that exposes FITS archive data
 to AI assistants like Claude Desktop via stdio transport.`,
-	Run: runMCPServer,
+	Run: mcpserver.RunMCPServer,
 }
 
 func init() {

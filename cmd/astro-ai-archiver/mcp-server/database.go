@@ -1,4 +1,4 @@
-package main
+package mcpserver
 
 import (
 	"crypto/sha256"
@@ -14,7 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 	_ "modernc.org/sqlite"
 
-	"github.com/yourusername/astro-ai-archiver/cmd/astro-ai-archiver/tools"
+	"github.com/yourusername/astro-ai-archiver/cmd/astro-ai-archiver/mcp-server/tools"
 )
 
 const schemaVersion = 1
