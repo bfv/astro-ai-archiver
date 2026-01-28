@@ -7,11 +7,18 @@ import (
 
 // TestBeginScanEndScan tests the scan state management functions
 func TestBeginScanEndScan(t *testing.T) {
-	// Reset state before test
+	// Reset state before test and ensure cleanup
 	scanMutex.Lock()
 	scanState.Scanning = false
 	scanState.LastScanTime = time.Time{}
 	scanMutex.Unlock()
+	
+	t.Cleanup(func() {
+		scanMutex.Lock()
+		scanState.Scanning = false
+		scanState.LastScanTime = time.Time{}
+		scanMutex.Unlock()
+	})
 
 	// Test: BeginScan should succeed when no scan is running
 	if !BeginScan() {
@@ -50,11 +57,18 @@ func TestBeginScanEndScan(t *testing.T) {
 
 // TestConcurrentScans tests that concurrent scan attempts are properly blocked
 func TestConcurrentScans(t *testing.T) {
-	// Reset state before test
+	// Reset state before test and ensure cleanup
 	scanMutex.Lock()
 	scanState.Scanning = false
 	scanState.LastScanTime = time.Time{}
 	scanMutex.Unlock()
+	
+	t.Cleanup(func() {
+		scanMutex.Lock()
+		scanState.Scanning = false
+		scanState.LastScanTime = time.Time{}
+		scanMutex.Unlock()
+	})
 
 	// Start first scan
 	if !BeginScan() {
@@ -80,12 +94,19 @@ func TestConcurrentScans(t *testing.T) {
 
 // TestGetScanState tests the GetScanState function
 func TestGetScanState(t *testing.T) {
-	// Reset state before test
+	// Reset state before test and ensure cleanup
 	scanMutex.Lock()
 	scanState.Scanning = false
 	testTime := time.Now()
 	scanState.LastScanTime = testTime
 	scanMutex.Unlock()
+	
+	t.Cleanup(func() {
+		scanMutex.Lock()
+		scanState.Scanning = false
+		scanState.LastScanTime = time.Time{}
+		scanMutex.Unlock()
+	})
 
 	// Get state
 	state := GetScanState()
