@@ -43,3 +43,24 @@ func SetLastScanTime(t time.Time) {
 	defer scanMutex.Unlock()
 	scanState.LastScanTime = t
 }
+
+// BeginScan marks the start of a scan operation and returns true if scan can proceed
+// Returns false if a scan is already in progress
+func BeginScan() bool {
+	scanMutex.Lock()
+	defer scanMutex.Unlock()
+	
+	if scanState.Scanning {
+		return false
+	}
+	scanState.Scanning = true
+	return true
+}
+
+// EndScan marks the end of a scan operation
+func EndScan() {
+	scanMutex.Lock()
+	defer scanMutex.Unlock()
+	scanState.Scanning = false
+	scanState.LastScanTime = time.Now()
+}
