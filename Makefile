@@ -4,7 +4,7 @@
 BINARY_NAME=astro-ai-archiver
 
 # Build directory
-BUILD_DIR=bin
+BUILD_DIR=build
 
 # Go parameters
 GOCMD=go

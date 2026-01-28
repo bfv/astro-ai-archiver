@@ -6,7 +6,7 @@ RUN mkdir -p /app/bin && \
     mkdir /app/db && \
     chown -R 1000:1000 /app/db
 
-COPY bin/astro-ai-archiver-linux-amd64 /app/bin/astro-ai-archiver
+COPY build/astro-ai-archiver-linux-amd64 /app/bin/astro-ai-archiver
 
 WORKDIR /app
 
