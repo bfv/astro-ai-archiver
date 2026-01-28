@@ -72,7 +72,7 @@ func RunMCPServer(cmd *cobra.Command, args []string) {
 				return
 			}
 			defer tools.EndScan()
-			
+
 			log.Info().Bool("force", forceScan).Msg("Starting initial scan in background")
 			scanner := NewScanner(db, expandedDirs, cfg.Scan.Recursive, forceScan, cfg.Scan.Workers)
 			result, err := scanner.Scan()
