@@ -5,6 +5,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
+
+	mcpserver "github.com/yourusername/astro-ai-archiver/cmd/astro-ai-archiver/mcp-server"
 )
 
 var version = "0.1.0"
@@ -23,7 +25,7 @@ and can be integrated with Claude Desktop for natural language queries.`,
 
 func main() {
 	// Set up basic logging for startup
-	initLogging("info", "console")
+	mcpserver.InitLogging("info", "console")
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Error().Err(err).Msg("Command failed")
