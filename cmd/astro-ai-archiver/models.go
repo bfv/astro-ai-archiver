@@ -104,6 +104,31 @@ type Config struct {
 	} `mapstructure:"logging"`
 }
 
+// Config interface implementation (for tools package)
+func (c *Config) GetScanDirectories() []string {
+	return c.Scan.Directory
+}
+
+func (c *Config) GetScanRecursive() bool {
+	return c.Scan.Recursive
+}
+
+func (c *Config) GetScanOnStartup() bool {
+	return c.Scan.OnStartup
+}
+
+func (c *Config) GetDatabasePath() string {
+	return c.Database.Path
+}
+
+func (c *Config) GetLoggingLevel() string {
+	return c.Logging.Level
+}
+
+func (c *Config) GetLoggingFormat() string {
+	return c.Logging.Format
+}
+
 // ScanResult represents the result of a directory scan
 type ScanResult struct {
 	FilesScanned int
@@ -113,16 +138,4 @@ type ScanResult struct {
 	FilesDeleted int
 	Errors       []string
 	Duration     time.Duration
-}
-
-// ArchiveSummary provides statistics about the archive
-type ArchiveSummary struct {
-	TotalFiles       int       `json:"total_files"`
-	TotalExposure    float64   `json:"total_exposure_seconds"`
-	OldestDate       time.Time `json:"oldest_observation"`
-	NewestDate       time.Time `json:"newest_observation"`
-	UniqueTargets    []string  `json:"unique_targets"`
-	UniqueFilters    []string  `json:"unique_filters"`
-	UniqueTelescopes []string  `json:"unique_telescopes"`
-	UniqueCameras    []string  `json:"unique_cameras"`
 }
