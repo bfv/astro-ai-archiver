@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/yourusername/astro-ai-archiver/cmd/astro-ai-archiver/mcp-server/prompts"
 	"github.com/yourusername/astro-ai-archiver/cmd/astro-ai-archiver/mcp-server/tools"
 )
 
@@ -71,7 +72,7 @@ func RunMCPServer(cmd *cobra.Command, args []string) {
 				return
 			}
 			defer tools.EndScan()
-			
+
 			log.Info().Bool("force", forceScan).Msg("Starting initial scan in background")
 			scanner := NewScanner(db, expandedDirs, cfg.Scan.Recursive, forceScan, cfg.Scan.Workers)
 			result, err := scanner.Scan()
@@ -98,6 +99,9 @@ func RunMCPServer(cmd *cobra.Command, args []string) {
 
 	// Register tools
 	tools.RegisterAll(mcpServer, db, cfg, expandedDirs, cfg.Scan.Recursive, Version)
+
+	// Register prompts
+	prompts.RegisterAll(mcpServer, db)
 
 	// Start server with configured transport
 	log.Info().
