@@ -369,6 +369,11 @@ func (s *Scanner) extractMetadata(filePath, relPath string, fileInfo os.FileInfo
 	// Software/Platform
 	file.Software = s.getStringHeader(header, "SWCREATE", "SOFTWARE", "PROGRAM", "CREATOR")
 
+	// ASIAIR does not write an OBJECT header; derive the target name from the filename instead.
+	if file.Object == "" && strings.Contains(strings.ToUpper(file.Software), "ASIAIR") {
+		file.Object = s.asiairObjectFromPath(filePath)
+	}
+
 	// Camera/Instrument
 	file.Camera = s.getStringHeader(header, "INSTRUME", "CAMERA", "DETECTOR")
 
@@ -567,3 +572,46 @@ var (
 		".fts":  true,
 	}
 )
+
+// asiairObjectFromPath derives the astronomical target name from an ASIAIR FITS filename.
+// ASIAIR does not write an OBJECT header; the target is instead encoded in the filename.
+//
+// Filename pattern: Light_<Object>_<rest>...<ext>
+// Example: Light_NGC891_02_300.0s_Bin1_Pro_0002.fit → NGC891
+//
+// Steps:
+//  1. Take the base filename (ignore directory components)
+//  2. Strip the file extension
+//  3. Strip the leading "Light_" prefix (case-insensitive)
+//  4. Everything before the first remaining "_" is the raw object name
+//  5. Map well-known common names to their catalog designations
+//  6. Apply standard catalog-prefix normalization (M, NGC, IC, SH2, …)
+func (s *Scanner) asiairObjectFromPath(filePath string) string {
+	base := filepath.Base(filePath)
+	name := strings.TrimSuffix(base, filepath.Ext(base))
+
+	// Strip "Light_" prefix (case-insensitive)
+	if len(name) >= 6 && strings.EqualFold(name[:6], "Light_") {
+		name = name[6:]
+	}
+
+	// Take everything before the first underscore
+	if idx := strings.Index(name, "_"); idx >= 0 {
+		name = name[:idx]
+	}
+
+	// Map well-known common names to their catalog designations.
+	// Key is the lowercase, space-stripped form of what appears in the filename.
+	if mapped, ok := asiairCommonNameMap[strings.ToLower(strings.ReplaceAll(name, " ", ""))]; ok {
+		name = mapped
+	}
+
+	// Apply standard catalog-prefix normalization (M31, NGC891, SH2-159, …)
+	return s.normalizeTarget(name)
+}
+
+// asiairCommonNameMap maps lowercase/space-stripped common object names found in ASIAIR
+// filenames to their canonical catalog designations.
+var asiairCommonNameMap = map[string]string{
+	"triangulumgalaxy": "M33",
+}
