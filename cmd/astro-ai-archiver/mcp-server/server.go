@@ -63,6 +63,9 @@ func RunMCPServer(cmd *cobra.Command, args []string) {
 
 	log.Info().Str("database", db.filePath).Msg("Database initialized")
 
+	// Store the ASIAIR common-name map so rescan calls through db.NewScanner also use it.
+	db.SetCommonNames(cfg.CommonNames)
+
 	// Start initial scan in background if configured
 	if cfg.Scan.OnStartup {
 		go func() {
@@ -74,7 +77,7 @@ func RunMCPServer(cmd *cobra.Command, args []string) {
 			defer tools.EndScan()
 
 			log.Info().Bool("force", forceScan).Msg("Starting initial scan in background")
-			scanner := NewScanner(db, expandedDirs, cfg.Scan.Recursive, forceScan, cfg.Scan.Workers)
+			scanner := NewScanner(db, expandedDirs, cfg.Scan.Recursive, forceScan, cfg.Scan.Workers, cfg.CommonNames)
 			result, err := scanner.Scan()
 			if err != nil {
 				log.Error().Err(err).Msg("Initial scan failed")

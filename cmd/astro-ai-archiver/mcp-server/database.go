@@ -59,10 +59,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 // Database handles all database operations
 type Database struct {
-	db       *sql.DB
-	baseDirs []string // Changed to support multiple base directories
-	filePath string
-	writeMu  sync.Mutex
+	db          *sql.DB
+	baseDirs    []string // Changed to support multiple base directories
+	filePath    string
+	writeMu     sync.Mutex
+	commonNames map[string]string // ASIAIR common-name → catalog designation
 }
 
 // NewDatabase creates a new database connection and initializes schema
@@ -156,9 +157,15 @@ func (db *Database) DeleteFilesByYear(year int) (int64, error) {
 	return n, nil
 }
 
+// SetCommonNames stores the ASIAIR common-name map on the database so it is
+// available to every scanner created via db.NewScanner.
+func (db *Database) SetCommonNames(m map[string]string) {
+	db.commonNames = m
+}
+
 // NewScanner creates a new scanner (implements tools.Database interface)
 func (db *Database) NewScanner(directories []string, recursive, force bool) interface{} {
-	return NewScanner(db, directories, recursive, force, 0) // 0 = use default
+	return NewScanner(db, directories, recursive, force, 0, db.commonNames)
 }
 
 // initSchema creates the database schema if it doesn't exist

@@ -19,3 +19,11 @@ transport:
 logging:
   level: "info"    # debug, info, warn, error
   format: "console"  # console or json
+
+# Map common object names (as they appear in capture-software filenames) to catalog designations.
+# Keys must be lowercase with spaces removed.  Values are the canonical catalog names.
+# Built-in default: triangulumgalaxy -> M33
+common_names:
+  "triangulumgalaxy": "M33"
+  "andromedagalaxy": "M31"
+  "whirlpoolgalaxy": "M51"

@@ -18,11 +18,12 @@ import (
 
 // Scanner handles scanning directories for FITS files
 type Scanner struct {
-	db        *Database
-	baseDirs  []string // Changed from single baseDir to multiple baseDirs
-	recursive bool
-	force     bool
-	workers   int
+	db          *Database
+	baseDirs    []string // Changed from single baseDir to multiple baseDirs
+	recursive   bool
+	force       bool
+	workers     int
+	commonNames map[string]string // ASIAIR common-name → catalog designation (config + defaults)
 
 	// Statistics
 	scanned  atomic.Int64
@@ -44,7 +45,7 @@ type Scanner struct {
 
 // NewScanner creates a new scanner instance
 // Note: directories should already be expanded (wildcards resolved) and absolute paths
-func NewScanner(db *Database, directories []string, recursive, force bool, workers int) *Scanner {
+func NewScanner(db *Database, directories []string, recursive, force bool, workers int, configCommonNames map[string]string) *Scanner {
 	// Default to runtime.NumCPU() if not specified or invalid
 	if workers <= 0 {
 		workers = runtime.NumCPU()
@@ -55,16 +56,27 @@ func NewScanner(db *Database, directories []string, recursive, force bool, worke
 		Int("workers", workers).
 		Msg("Scanner initialized with directories")
 
+	// Build the effective common-name map: start with package defaults, then
+	// overlay any entries supplied via config so users can extend without recompiling.
+	mergedNames := make(map[string]string, len(asiairDefaultCommonNames)+len(configCommonNames))
+	for k, v := range asiairDefaultCommonNames {
+		mergedNames[k] = v
+	}
+	for k, v := range configCommonNames {
+		mergedNames[k] = v
+	}
+
 	return &Scanner{
-		db:        db,
-		baseDirs:  directories,
-		recursive: recursive,
-		force:     force,
-		workers:   workers,
-		errors:    make([]string, 0),
-		limit:     -1, // Limit to 25 files for testing
-		batchSize: 50, // Process in batches of 50 for better performance
-		batch:     make([]*FITSFile, 0, 50),
+		db:          db,
+		baseDirs:    directories,
+		recursive:   recursive,
+		force:       force,
+		workers:     workers,
+		commonNames: mergedNames,
+		errors:      make([]string, 0),
+		limit:       -1, // Limit to 25 files for testing
+		batchSize:   50, // Process in batches of 50 for better performance
+		batch:       make([]*FITSFile, 0, 50),
 	}
 }
 
@@ -601,8 +613,8 @@ func (s *Scanner) asiairObjectFromPath(filePath string) string {
 	}
 
 	// Map well-known common names to their catalog designations.
-	// Key is the lowercase, space-stripped form of what appears in the filename.
-	if mapped, ok := asiairCommonNameMap[strings.ToLower(strings.ReplaceAll(name, " ", ""))]; ok {
+	// Keys are lowercase with spaces stripped to match however the name appears in the filename.
+	if mapped, ok := s.commonNames[strings.ToLower(strings.ReplaceAll(name, " ", ""))]; ok {
 		name = mapped
 	}
 
@@ -610,8 +622,10 @@ func (s *Scanner) asiairObjectFromPath(filePath string) string {
 	return s.normalizeTarget(name)
 }
 
-// asiairCommonNameMap maps lowercase/space-stripped common object names found in ASIAIR
-// filenames to their canonical catalog designations.
-var asiairCommonNameMap = map[string]string{
+// asiairDefaultCommonNames is the built-in baseline of common ASIAIR filename object
+// names mapped to their canonical catalog designations. Keys must be lowercase with
+// spaces removed (e.g. "triangulumgalaxy", not "Triangulum Galaxy").
+// Entries from the config file are merged on top at scanner construction time.
+var asiairDefaultCommonNames = map[string]string{
 	"triangulumgalaxy": "M33",
 }

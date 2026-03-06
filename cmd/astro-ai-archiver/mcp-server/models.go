@@ -89,6 +89,9 @@ type Config struct {
 		OnStartup bool            `yaml:"on_startup" mapstructure:"on_startup"`
 		Workers   int             `yaml:"workers" mapstructure:"workers"`
 	} `yaml:"scan" mapstructure:"scan"`
+	// CommonNames maps lowercase/space-stripped object names (as they appear in capture
+	// software filenames) to canonical catalog designations, e.g. "triangulumgalaxy": "M33".
+	CommonNames map[string]string `yaml:"common_names" mapstructure:"common_names"`
 	Database struct {
 		Path string `mapstructure:"path"`
 	} `mapstructure:"database"`
