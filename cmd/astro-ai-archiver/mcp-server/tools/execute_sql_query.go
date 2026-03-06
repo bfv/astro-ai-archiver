@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -45,9 +46,14 @@ func RegisterExecuteSqlQuery(s *mcp.Server, db Database) {
 
 		log.Trace().Str("tool", "execute_sql_query").Interface("response", response).Msg("Tool response")
 
+		jsonBytes, err := json.Marshal(response)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to serialize results: %w", err)
+		}
+
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("Query returned %d rows", len(results))},
+				&mcp.TextContent{Text: string(jsonBytes)},
 			},
 		}, response, nil
 	})

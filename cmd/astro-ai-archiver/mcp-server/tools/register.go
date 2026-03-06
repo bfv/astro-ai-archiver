@@ -50,7 +50,7 @@ func SetLastScanTime(t time.Time) {
 func BeginScan() bool {
 	scanMutex.Lock()
 	defer scanMutex.Unlock()
-	
+
 	if scanState.Scanning {
 		return false
 	}
