@@ -384,7 +384,8 @@ func (s *Scanner) extractMetadata(filePath, relPath string, fileInfo os.FileInfo
 	file.Filter = s.getStringHeader(header, "FILTER", "FILT", "FILTNAME")
 
 	// Image Type - only process LIGHT frames
-	file.ImageType = s.getStringHeader(header, "IMAGETYP", "IMAGTYP", "FRAME")
+	// Normalize to uppercase to handle mixed-case values like ASIAIR's "Light" / "Light   "
+	file.ImageType = strings.ToUpper(s.getStringHeader(header, "IMAGETYP", "IMAGTYP", "FRAME"))
 	if file.ImageType == "" {
 		file.ImageType = "LIGHT" // Default to LIGHT if not specified
 	}
