@@ -12,6 +12,7 @@ type Database interface {
 	ExecuteReadOnlyQuery(query string) ([]map[string]interface{}, error)
 	GetFilePath() string
 	NewScanner(directories []string, recursive, force bool) interface{}
+	DeleteAllFiles() (int64, error)
 }
 
 // Config interface defines methods needed by tools

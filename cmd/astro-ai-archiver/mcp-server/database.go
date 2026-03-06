@@ -124,6 +124,20 @@ func (db *Database) GetFilePath() string {
 	return db.filePath
 }
 
+// DeleteAllFiles removes all records from the fits_files table and returns the number of deleted rows.
+func (db *Database) DeleteAllFiles() (int64, error) {
+	result, err := db.db.Exec("DELETE FROM fits_files")
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete all records: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	log.Info().Int64("deleted", n).Msg("All records deleted from fits_files")
+	return n, nil
+}
+
 // NewScanner creates a new scanner (implements tools.Database interface)
 func (db *Database) NewScanner(directories []string, recursive, force bool) interface{} {
 	return NewScanner(db, directories, recursive, force, 0) // 0 = use default

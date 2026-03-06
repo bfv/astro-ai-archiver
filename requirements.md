@@ -208,6 +208,17 @@ Statistics + lists all unique: targets, filters, telescopes, cameras
 
 ### Maintenance Tools
 
+#### `reset_database`
+Delete all records from the `fits_files` table. The schema is preserved. Returns the number of deleted records. A `rescan_fits_directory` call is required afterwards to repopulate the archive.
+
+**Parameters:**
+- None
+
+**Returns:**
+- `status`: `"ok"` on success
+- `records_deleted`: number of rows removed
+- `message`: human-readable summary
+
 #### `rescan_fits_directory`
 Trigger rescan (with optional force parameter)
 

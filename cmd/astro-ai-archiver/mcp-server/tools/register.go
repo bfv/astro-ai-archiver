@@ -23,8 +23,9 @@ func RegisterAll(s *mcp.Server, db Database, cfg Config, scanDirs []string, recu
 	RegisterGetConfiguration(s, cfg, db.GetFilePath(), version)
 	RegisterExecuteSqlQuery(s, db)
 	RegisterGetDatabaseSchema(s)
+	RegisterResetDatabase(s, db)
 
-	log.Info().Int("tools", 8).Msg("MCP tools registered")
+	log.Info().Int("tools", 9).Msg("MCP tools registered")
 }
 
 // GetScanState returns the current scan state (for external access)
