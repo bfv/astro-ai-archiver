@@ -321,107 +321,48 @@ func (s *Scanner) extractMetadata(filePath, relPath string, fileInfo os.FileInfo
 
 	// Date/Time
 	if dateStr := s.getStringHeader(header, "DATE-OBS", "DATE_OBS", "DATEOBS"); dateStr != "" {
-		if t, err := time.Parse(time.RFC3339, dateStr); err == nil {
-			file.UTCTime = sql.NullString{String: t.Format(time.RFC3339), Valid: true}
-		} else if t, err := time.Parse("2006-01-02T15:04:05", dateStr); err == nil {
-			file.UTCTime = sql.NullString{String: t.Format(time.RFC3339), Valid: true}
+		if t, ok := parseDateTimeString(dateStr); ok {
+			file.UTCTime = sql.NullString{String: t.UTC().Format("2006-01-02T15:04:05"), Valid: true}
 		}
 	}
 
 	// Local time
 	if localStr := s.getStringHeader(header, "DATE-LOC", "DATE_LOCAL", "LOCTIME"); localStr != "" {
-		if t, err := time.Parse(time.RFC3339, localStr); err == nil {
-			file.LocalTime = sql.NullString{String: t.Format(time.RFC3339), Valid: true}
+		if t, ok := parseDateTimeString(localStr); ok {
+			file.LocalTime = sql.NullString{String: t.Format("2006-01-02T15:04:05"), Valid: true}
 		}
 	}
 
-	// Julian date
+	// Julian date (stored as MJD-OBS)
 	file.JulianDate = s.getFloatHeader(header, "MJD-OBS", "JD", "JULIAN", "JD-OBS")
 
-	// Calculate observation date from Julian date
+	// Observation date: astrophotography convention is UTC - 12h so that images taken
+	// after midnight are attributed to the evening session they belong to.
 	if file.JulianDate != nil {
-		log.Debug().Float64("julian_date", *file.JulianDate).Msg("Found Julian date, converting to observation date")
-
-		// Convert Julian date to Gregorian date
-		// Julian Date Number is days since January 1, 4713 BCE in proleptic Julian calendar
-		// Modified Julian Date (MJD) = JD - 2400000.5
-		// We assume the julian_date field contains Modified Julian Date (MJD) as that's common in FITS
-		jd := *file.JulianDate + 2400000.5
-
-		// Convert Julian Day Number to Gregorian date
-		// Algorithm from Meeus, "Astronomical Algorithms"
-		a := int(jd + 0.5)
-		var b int
-		if a >= 2299161 {
-			alpha := int((float64(a) - 1867216.25) / 36524.25)
-			b = a + 1 + alpha - alpha/4
-		} else {
-			b = a
-		}
-		c := b + 1524
-		d := int((float64(c) - 122.1) / 365.25)
-		e := int(365.25 * float64(d))
-		f := int((float64(c) - float64(e)) / 30.6001)
-
-		day := c - e - int(30.6001*float64(f))
-		var month int
-		if f <= 13 {
-			month = f - 1
-		} else {
-			month = f - 13
-		}
-		var year int
-		if month > 2 {
-			year = d - 4716
-		} else {
-			year = d - 4715
-		}
-
-		// Format as YYYY-MM-DD
-		dateStr := fmt.Sprintf("%04d-%02d-%02d", year, month, day)
+		// Convert MJD to time.Time (MJD epoch: 1858-11-17 00:00:00 UTC)
+		mjdEpoch := time.Date(1858, 11, 17, 0, 0, 0, 0, time.UTC)
+		obsTime := mjdEpoch.Add(time.Duration(float64(time.Hour) * 24 * (*file.JulianDate)))
+		dateStr := observationDateFromTime(obsTime)
 		file.ObservationDate = sql.NullString{String: dateStr, Valid: true}
-		log.Debug().Str("observation_date", dateStr).Msg("Calculated observation date")
+		log.Debug().Float64("julian_date", *file.JulianDate).Str("observation_date", dateStr).Msg("Calculated observation date from MJD")
+	} else if file.UTCTime.Valid {
+		if t, ok := parseDateTimeString(file.UTCTime.String); ok {
+			dateStr := observationDateFromTime(t)
+			file.ObservationDate = sql.NullString{String: dateStr, Valid: true}
+			log.Debug().Str("observation_date", dateStr).Msg("Calculated observation date from UTC time")
+		}
 	} else {
-		log.Debug().Msg("No Julian date found, trying to derive observation_date from utc_time")
-		// If no Julian date, try to derive observation date from UTC time
-		if file.UTCTime.Valid {
-			// Parse UTC time and extract just the date part
-			if t, err := time.Parse(time.RFC3339, file.UTCTime.String); err == nil {
-				dateStr := t.Format("2006-01-02")
+		// Last resort: re-read DATE-OBS header directly
+		if rawDate := s.getStringHeader(header, "DATE-OBS", "DATE_OBS", "DATEOBS"); rawDate != "" {
+			if t, ok := parseDateTimeString(rawDate); ok {
+				dateStr := observationDateFromTime(t)
 				file.ObservationDate = sql.NullString{String: dateStr, Valid: true}
-				log.Debug().Str("observation_date", dateStr).Msg("Calculated observation date from UTC time")
+				log.Debug().Str("observation_date", dateStr).Msg("Calculated observation date from DATE-OBS header")
 			} else {
-				log.Debug().Err(err).Str("utc_time", file.UTCTime.String).Msg("Failed to parse UTC time for observation date")
+				log.Debug().Str("date_obs", rawDate).Msg("Could not parse DATE-OBS in any known format")
 			}
 		} else {
-			log.Debug().Msg("No UTC time available either, trying to parse DATE-OBS directly")
-			// Try to get date directly from headers in various formats
-			if dateStr := s.getStringHeader(header, "DATE-OBS", "DATE_OBS", "DATEOBS"); dateStr != "" {
-				// Try various date formats
-				formats := []string{
-					"2006-01-02T15:04:05",
-					"2006-01-02T15:04:05.000",
-					"2006-01-02T15:04:05Z",
-					"2006-01-02T15:04:05.000Z",
-					"2006-01-02 15:04:05",
-					"2006-01-02",
-				}
-
-				for _, format := range formats {
-					if t, err := time.Parse(format, dateStr); err == nil {
-						obsDate := t.Format("2006-01-02")
-						file.ObservationDate = sql.NullString{String: obsDate, Valid: true}
-						log.Debug().Str("observation_date", obsDate).Str("format", format).Msg("Calculated observation date from DATE-OBS")
-						break
-					}
-				}
-
-				if !file.ObservationDate.Valid {
-					log.Debug().Str("date_obs", dateStr).Msg("Could not parse DATE-OBS in any known format")
-				}
-			} else {
-				log.Debug().Msg("No date information found, observation_date will be null")
-			}
+			log.Debug().Msg("No date information found, observation_date will be null")
 		}
 	}
 
@@ -502,6 +443,42 @@ func (s *Scanner) getIntHeader(header *fitsio.Header, keys ...string) *int {
 		}
 	}
 	return nil
+}
+
+// parseDateTimeString parses a datetime string in formats used by FITS capture software
+// (N.I.N.A., ASI Air, Seestar, Dwarf 3, etc.). For inputs without an explicit timezone,
+// UTC is assumed. Returns the parsed time and true on success.
+func parseDateTimeString(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	// Try formats with explicit timezone first.
+	// RFC3339Nano covers both with and without fractional seconds when tz is present.
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t, true
+	}
+	// Formats without timezone — treat as UTC.
+	// "2006-01-02T15:04:05.999999999" matches any number of fractional digits (0–9),
+	// so it also matches the plain "2006-01-02T15:04:05" case.
+	noTZLayouts := []string{
+		"2006-01-02T15:04:05.999999999", // T-separator, optional fractional seconds (N.I.N.A., most software)
+		"2006-01-02 15:04:05",           // space separator
+		"2006-01-02",                    // date only
+	}
+	for _, layout := range noTZLayouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.UTC), true
+		}
+	}
+	return time.Time{}, false
+}
+
+// observationDateFromTime returns the astrophotography observation date for t.
+// The convention is UTC - 12h: images taken after midnight belong to the previous
+// calendar day (i.e. the evening session that started it).
+func observationDateFromTime(t time.Time) string {
+	return t.UTC().Add(-12 * time.Hour).Format("2006-01-02")
 }
 
 // addError adds an error message to the error list (thread-safe)
