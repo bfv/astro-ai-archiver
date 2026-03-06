@@ -13,6 +13,7 @@ type Database interface {
 	GetFilePath() string
 	NewScanner(directories []string, recursive, force bool) interface{}
 	DeleteAllFiles() (int64, error)
+	DeleteFilesByYear(year int) (int64, error)
 }
 
 // Config interface defines methods needed by tools

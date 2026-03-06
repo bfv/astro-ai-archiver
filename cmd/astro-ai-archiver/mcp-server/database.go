@@ -138,6 +138,24 @@ func (db *Database) DeleteAllFiles() (int64, error) {
 	return n, nil
 }
 
+// DeleteFilesByYear removes all records whose observation_date falls within the given year.
+// It returns the number of deleted rows.
+func (db *Database) DeleteFilesByYear(year int) (int64, error) {
+	result, err := db.db.Exec(
+		"DELETE FROM fits_files WHERE strftime('%Y', observation_date) = ?",
+		fmt.Sprintf("%04d", year),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete records for year %d: %w", year, err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	log.Info().Int("year", year).Int64("deleted", n).Msg("Records deleted from fits_files by year")
+	return n, nil
+}
+
 // NewScanner creates a new scanner (implements tools.Database interface)
 func (db *Database) NewScanner(directories []string, recursive, force bool) interface{} {
 	return NewScanner(db, directories, recursive, force, 0) // 0 = use default
